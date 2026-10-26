@@ -1,4 +1,4 @@
-# Unreleased
+# Version 7.1.1 - 2026-10-26 (@noelminamino/dns-packet)
 
 - Fix: an OPT record cut by the end of the buffer was decoded with silently shortened options; it now
     throws like other truncated records (and is reported by `{ partial: true }`).

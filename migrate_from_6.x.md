@@ -28,7 +28,7 @@ import * as dnsPacket from 'https://esm.sh/@leichtgewicht/dns-packet'
 
 // after
 import * as dnsPacket from '@noelminamino/dns-packet'
-import * as dnsPacket from 'https://esm.sh/@noelminamino/dns-packet@7.1.0'   // pin the version
+import * as dnsPacket from 'https://esm.sh/@noelminamino/dns-packet@7.1.1'   // pin the version
 ```
 
 `npm install @noelminamino/dns-packet`. CommonJS (`require`) still works. Sub-paths are the same
@@ -243,7 +243,7 @@ rendezvous servers, NXT lists its types, and so on.
 
 ## Checklist
 
-- [ ] Change the package name / esm.sh URL (pin `@7.1.0`).
+- [ ] Change the package name / esm.sh URL (pin `@7.1.1`).
 - [ ] Search for `UNKNOWN_`; where an `UNKNOWN_` string is used as a condition, use the type name (`'HTTPS'`, …).
       A table that only renames types keeps working (it becomes unused; removing it is optional).
 - [ ] Search for code that reads `rr.data` as bytes (`instanceof Uint8Array`, `DataView`, `data[0]`) for

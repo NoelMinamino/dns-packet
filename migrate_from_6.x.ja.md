@@ -28,7 +28,7 @@ import * as dnsPacket from 'https://esm.sh/@leichtgewicht/dns-packet'
 
 // 変更後
 import * as dnsPacket from '@noelminamino/dns-packet'
-import * as dnsPacket from 'https://esm.sh/@noelminamino/dns-packet@7.1.0'   // 版を固定する
+import * as dnsPacket from 'https://esm.sh/@noelminamino/dns-packet@7.1.1'   // 版を固定する
 ```
 
 `npm install @noelminamino/dns-packet` でインストールします。CommonJS（`require`）もそのまま使えます。
@@ -242,7 +242,7 @@ NXT にタイプ一覧が出る、などです。
 
 ## チェックリスト
 
-- [ ] パッケージ名・esm.sh の URL を変更する（`@7.1.0` で版を固定）。
+- [ ] パッケージ名・esm.sh の URL を変更する（`@7.1.1` で版を固定）。
 - [ ] `UNKNOWN_` を検索し、`UNKNOWN_` の文字列を条件にしている箇所を型名（`'HTTPS'` など）に置き換える。
       名前を直すだけの対応表は残しても動く（不要になるので消すかは任意）。
 - [ ] [2 章](#2-オブジェクトで返る型が増えた)の型について、`rr.data` をバイト列として読んでいる箇所
