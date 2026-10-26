@@ -1,6 +1,6 @@
 /* tslint:disable:no-duplicate-imports */
 import * as dnsPacket from '@noelminamino/dns-packet';
-import { Codec, UnknownCodec } from '@noelminamino/dns-packet';
+import { Answer, Codec, UnknownCodec } from '@noelminamino/dns-packet';
 
 dnsPacket.decode(dnsPacket.encode({
   id: 1,
@@ -70,3 +70,16 @@ dnsPacket.decode(new Uint8Array([])); // $ExpectType Packet
 dnsPacket.decodeList([], dnsPacket.a, new Uint8Array(0)); // $ExpectType Packet[]
 dnsPacket.streamDecode(new Uint8Array(0)); // $ExpectType Packet | null
 dnsPacket.streamEncode({}); // $ExpectType Uint8Array
+
+const httpsAnswer: Answer = {
+  type: 'HTTPS',
+  name: 'example.com',
+  data: { priority: 1, targetName: '.', params: { alpn: ['h2', 'h3'], port: 443, key65000: new Uint8Array(1) } }
+};
+const tlsaAnswer: Answer = {
+  type: 'TLSA',
+  name: '_443._tcp.example.com',
+  data: { usage: 3, selector: 1, matchingType: 1, certificate: new Uint8Array(32) }
+};
+dnsPacket.svcb.decode(new Uint8Array(0)); // $ExpectType SvcbData
+dnsPacket.naptr.decode(new Uint8Array(0)); // $ExpectType NaptrData

@@ -3,6 +3,7 @@ import * as packet from './index.mjs'
 import * as rcodes from './rcodes.mjs'
 import * as opcodes from './opcodes.mjs'
 import * as optioncodes from './optioncodes.mjs'
+import * as types from './types.mjs'
 import { decode as toUtf8 } from 'utf8-codec'
 import { write, toHex, bytelength, writeHex, hexLength } from './buffer_utils.mjs'
 
@@ -769,6 +770,187 @@ test('buffer utf8', function (sub) {
     }
     t.end()
   })
+})
+
+tape('types', function (t) {
+  t.same(types.toString(65), 'HTTPS')
+  t.same(types.toString(64), 'SVCB')
+  t.same(types.toString(53), 'SMIMEA')
+  t.same(types.toString(65280), 'UNKNOWN_65280')
+  t.same(types.toType('https'), 65)
+  t.same(types.toType('NSAP-PTR'), 23)
+  t.same(types.toType('*'), 255)
+  t.same(types.toType('TYPE65280'), 65280)
+  t.same(types.toType('UNKNOWN_1234'), 1234)
+  t.same(types.toType('NOT-A-TYPE'), 0)
+  for (let i = 0; i < 65536; i++) {
+    if (types.toType(types.toString(i)) !== i) {
+      t.fail(`toType(toString(${i})) round trip`)
+      break
+    }
+  }
+  t.end()
+})
+
+tape('sshfp with unassigned hash type', function (t) {
+  testEncoder(t, packet.sshfp, { algorithm: 4, hash: 3, fingerprint: 'a108c9f8' })
+  t.end()
+})
+
+tape('naptr', function (t) {
+  testEncoder(t, packet.naptr, {
+    order: 100,
+    preference: 10,
+    flags: 's',
+    services: 'SIP+D2U',
+    regexp: '!^.*$!sip:customer-service@example.com!',
+    replacement: '_sip._udp.example.com'
+  })
+  testEncoder(t, packet.naptr, {
+    order: 1,
+    preference: 2,
+    flags: '',
+    services: '',
+    regexp: '',
+    replacement: '.'
+  })
+  t.end()
+})
+
+tape('tlsa / smimea', function (t) {
+  const val = { usage: 3, selector: 1, matchingType: 1, certificate: Buffer.from('0123456789abcdef0123456789abcdef', 'hex') }
+  testEncoder(t, packet.tlsa, val)
+  testEncoder(t, packet.smimea, val)
+  t.end()
+})
+
+tape('uri', function (t) {
+  testEncoder(t, packet.uri, { priority: 10, weight: 1, target: 'ftp://ftp1.example.com/public' })
+  testEncoder(t, packet.uri, { priority: 0, weight: 0, target: '' })
+  t.end()
+})
+
+tape('openpgpkey', function (t) {
+  testEncoder(t, packet.openpgpkey, { key: Buffer.from([0x99, 0x01, 0x0d, 0x04]) })
+  t.end()
+})
+
+tape('nsec3param', function (t) {
+  testEncoder(t, packet.nsec3param, { algorithm: 1, flags: 0, iterations: 10, salt: Buffer.from('aabbccdd', 'hex') })
+  testEncoder(t, packet.nsec3param, { algorithm: 1, flags: 0, iterations: 0, salt: Buffer.alloc(0) })
+  t.end()
+})
+
+tape('zonemd', function (t) {
+  testEncoder(t, packet.zonemd, { serial: 2018031900, scheme: 1, algorithm: 1, digest: Buffer.alloc(48, 0xab) })
+  t.end()
+})
+
+tape('csync', function (t) {
+  testEncoder(t, packet.csync, { serial: 66, flags: 3, rrtypes: ['A', 'NS', 'AAAA'] })
+  t.end()
+})
+
+tape('loc', function (t) {
+  // RFC 1876: cambridge-net.kei.com. LOC 42 21 54 N 71 06 18 W -24m 30m
+  const val = {
+    version: 0,
+    size: 0x33,
+    horizontalPrecision: 0x16,
+    verticalPrecision: 0x13,
+    latitude: 0x89170b30,
+    longitude: 0x70be1c38,
+    altitude: 0x00989530
+  }
+  testEncoder(t, packet.loc, val)
+  const buf = packet.loc.encode(val)
+  buf[2] = 1
+  t.throws(() => packet.loc.decode(buf), /unsupported version/)
+  t.end()
+})
+
+tape('svcb', function (t) {
+  testEncoder(t, packet.svcb, { priority: 0, targetName: 'foo.example.com', params: {} })
+  testEncoder(t, packet.https, { priority: 1, targetName: '.', params: { alpn: ['h2'] } })
+  testEncoder(t, packet.svcb, {
+    priority: 1,
+    targetName: 'svc.example.com',
+    params: {
+      mandatory: ['alpn', 'port'],
+      alpn: ['h2', 'h3'],
+      'no-default-alpn': true,
+      port: 8443,
+      ipv4hint: ['192.0.2.1', '192.0.2.2'],
+      ech: Buffer.from('0123456789abcdef', 'hex'),
+      ipv6hint: ['2001:db8::1'],
+      dohpath: '/dns-query{?dns}',
+      ohttp: true,
+      key65000: Buffer.from('abc')
+    }
+  })
+  t.end()
+})
+
+tape('svcb RFC 9460 test vector (D.2, Figure 7)', function (t) {
+  const wire = Buffer.from(
+    '0030' + // RDLENGTH
+    '0010' + // priority 16
+    '03666f6f076578616d706c65036f726700' + // foo.example.org.
+    '0000000400010004' + // mandatory=alpn,ipv4hint
+    '000100090268320568332d3139' + // alpn=h2,h3-19
+    '00040004c0000201', // ipv4hint=192.0.2.1
+    'hex')
+  t.same(packet.svcb.decode(wire), {
+    priority: 16,
+    targetName: 'foo.example.org',
+    params: { mandatory: ['alpn', 'ipv4hint'], alpn: ['h2', 'h3-19'], ipv4hint: ['192.0.2.1'] }
+  })
+  // Keys are written in increasing order regardless of the object key order
+  const encoded = packet.svcb.encode({
+    priority: 16,
+    targetName: 'foo.example.org',
+    params: { ipv4hint: ['192.0.2.1'], alpn: ['h2', 'h3-19'], mandatory: ['alpn', 'ipv4hint'] }
+  })
+  t.same(toHex(encoded, 0, encoded.length), toHex(wire, 0, wire.length))
+  t.end()
+})
+
+tape('malformed rdata is kept as raw bytes', function (t) {
+  const buf = Buffer.from(packet.encode({
+    type: 'response',
+    answers: [
+      { type: 'HTTPS', name: 'a.example', data: { priority: 1, targetName: '.', params: { alpn: ['h2'], port: 443 } } },
+      { type: 'A', name: 'b.example', data: '192.0.2.1' }
+    ]
+  }))
+  const decoded = packet.decode(buf)
+  t.same(decoded.answers[0].type, 'HTTPS')
+  t.same(decoded.answers[0].data.params, { alpn: ['h2'], port: 443 })
+  t.same(decoded.answers[0].dataError, undefined)
+
+  // Swap the two SvcParams (alpn: 7 bytes, port: 6 bytes) so that the keys are out of order
+  const params = 12 + 11 + 10 + 2 + 1 // header, owner, type/class/ttl/rdlength, priority, target
+  const swapped = Buffer.concat([buf.subarray(params + 7, params + 13), buf.subarray(params, params + 7)])
+  swapped.copy(buf, params)
+  const broken = packet.decode(buf)
+  t.ok(broken.answers[0].data instanceof Uint8Array, 'raw rdata is returned')
+  t.same(broken.answers[0].data.length, 2 + 1 + 13)
+  t.match(broken.answers[0].dataError, /increasing order/)
+  t.same(broken.answers[1].data, '192.0.2.1', 'following records still decode')
+  t.end()
+})
+
+tape('new record types round trip through packet', function (t) {
+  const answers = [
+    { type: 'HTTPS', name: 'example.com', ttl: 300, class: 'IN', flush: false, data: { priority: 1, targetName: '.', params: { alpn: ['h2', 'h3'] } } },
+    { type: 'TLSA', name: '_443._tcp.example.com', ttl: 300, class: 'IN', flush: false, data: { usage: 3, selector: 1, matchingType: 1, certificate: Buffer.alloc(32, 1) } },
+    { type: 'CDS', name: 'example.com', ttl: 300, class: 'IN', flush: false, data: { keyTag: 12345, algorithm: 13, digestType: 2, digest: Buffer.alloc(32, 2) } },
+    { type: 'URI', name: '_http._tcp.example.com', ttl: 300, class: 'IN', flush: false, data: { priority: 10, weight: 1, target: 'https://example.com/' } }
+  ]
+  const decoded = packet.decode(packet.encode({ type: 'response', answers }))
+  t.same(decoded.answers.map(a => a.type), ['HTTPS', 'TLSA', 'CDS', 'URI'])
+  t.ok(compare(t, answers, decoded.answers), 'decoded answers match')
+  t.end()
 })
 
 function testEncoder (t, rpacket, val) {

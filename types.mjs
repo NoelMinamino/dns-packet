@@ -1,101 +1,117 @@
+// IANA "Resource Record (RR) TYPEs"
+// https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
+const TYPES = {
+  1: 'A',
+  2: 'NS',
+  3: 'MD',
+  4: 'MF',
+  5: 'CNAME',
+  6: 'SOA',
+  7: 'MB',
+  8: 'MG',
+  9: 'MR',
+  10: 'NULL',
+  11: 'WKS',
+  12: 'PTR',
+  13: 'HINFO',
+  14: 'MINFO',
+  15: 'MX',
+  16: 'TXT',
+  17: 'RP',
+  18: 'AFSDB',
+  19: 'X25',
+  20: 'ISDN',
+  21: 'RT',
+  22: 'NSAP',
+  23: 'NSAP-PTR',
+  24: 'SIG',
+  25: 'KEY',
+  26: 'PX',
+  27: 'GPOS',
+  28: 'AAAA',
+  29: 'LOC',
+  30: 'NXT',
+  31: 'EID',
+  32: 'NIMLOC',
+  33: 'SRV',
+  34: 'ATMA',
+  35: 'NAPTR',
+  36: 'KX',
+  37: 'CERT',
+  38: 'A6',
+  39: 'DNAME',
+  40: 'SINK',
+  41: 'OPT',
+  42: 'APL',
+  43: 'DS',
+  44: 'SSHFP',
+  45: 'IPSECKEY',
+  46: 'RRSIG',
+  47: 'NSEC',
+  48: 'DNSKEY',
+  49: 'DHCID',
+  50: 'NSEC3',
+  51: 'NSEC3PARAM',
+  52: 'TLSA',
+  53: 'SMIMEA',
+  55: 'HIP',
+  56: 'NINFO',
+  57: 'RKEY',
+  58: 'TALINK',
+  59: 'CDS',
+  60: 'CDNSKEY',
+  61: 'OPENPGPKEY',
+  62: 'CSYNC',
+  63: 'ZONEMD',
+  64: 'SVCB',
+  65: 'HTTPS',
+  66: 'DSYNC',
+  67: 'HHIT',
+  68: 'BRID',
+  99: 'SPF',
+  100: 'UINFO',
+  101: 'UID',
+  102: 'GID',
+  103: 'UNSPEC',
+  104: 'NID',
+  105: 'L32',
+  106: 'L64',
+  107: 'LP',
+  108: 'EUI48',
+  109: 'EUI64',
+  128: 'NXNAME',
+  249: 'TKEY',
+  250: 'TSIG',
+  251: 'IXFR',
+  252: 'AXFR',
+  253: 'MAILB',
+  254: 'MAILA',
+  255: 'ANY',
+  256: 'URI',
+  257: 'CAA',
+  258: 'AVC',
+  259: 'DOA',
+  260: 'AMTRELAY',
+  261: 'RESINFO',
+  262: 'WALLET',
+  263: 'CLA',
+  264: 'IPN',
+  32768: 'TA',
+  32769: 'DLV'
+}
+
+const NAMES = { '*': 255 }
+for (const [type, name] of Object.entries(TYPES)) NAMES[name] = Number(type)
+
 export function toString (type) {
-  switch (type) {
-    case 1: return 'A'
-    case 10: return 'NULL'
-    case 28: return 'AAAA'
-    case 18: return 'AFSDB'
-    case 42: return 'APL'
-    case 257: return 'CAA'
-    case 60: return 'CDNSKEY'
-    case 59: return 'CDS'
-    case 37: return 'CERT'
-    case 5: return 'CNAME'
-    case 49: return 'DHCID'
-    case 32769: return 'DLV'
-    case 39: return 'DNAME'
-    case 48: return 'DNSKEY'
-    case 43: return 'DS'
-    case 55: return 'HIP'
-    case 13: return 'HINFO'
-    case 45: return 'IPSECKEY'
-    case 25: return 'KEY'
-    case 36: return 'KX'
-    case 29: return 'LOC'
-    case 15: return 'MX'
-    case 35: return 'NAPTR'
-    case 2: return 'NS'
-    case 47: return 'NSEC'
-    case 50: return 'NSEC3'
-    case 51: return 'NSEC3PARAM'
-    case 12: return 'PTR'
-    case 46: return 'RRSIG'
-    case 17: return 'RP'
-    case 24: return 'SIG'
-    case 6: return 'SOA'
-    case 99: return 'SPF'
-    case 33: return 'SRV'
-    case 44: return 'SSHFP'
-    case 32768: return 'TA'
-    case 249: return 'TKEY'
-    case 52: return 'TLSA'
-    case 250: return 'TSIG'
-    case 16: return 'TXT'
-    case 252: return 'AXFR'
-    case 251: return 'IXFR'
-    case 41: return 'OPT'
-    case 255: return 'ANY'
-  }
-  return 'UNKNOWN_' + type
+  return TYPES[type] || 'UNKNOWN_' + type
 }
 
 export function toType (name) {
-  switch (name.toUpperCase()) {
-    case 'A': return 1
-    case 'NULL': return 10
-    case 'AAAA': return 28
-    case 'AFSDB': return 18
-    case 'APL': return 42
-    case 'CAA': return 257
-    case 'CDNSKEY': return 60
-    case 'CDS': return 59
-    case 'CERT': return 37
-    case 'CNAME': return 5
-    case 'DHCID': return 49
-    case 'DLV': return 32769
-    case 'DNAME': return 39
-    case 'DNSKEY': return 48
-    case 'DS': return 43
-    case 'HIP': return 55
-    case 'HINFO': return 13
-    case 'IPSECKEY': return 45
-    case 'KEY': return 25
-    case 'KX': return 36
-    case 'LOC': return 29
-    case 'MX': return 15
-    case 'NAPTR': return 35
-    case 'NS': return 2
-    case 'NSEC': return 47
-    case 'NSEC3': return 50
-    case 'NSEC3PARAM': return 51
-    case 'PTR': return 12
-    case 'RRSIG': return 46
-    case 'RP': return 17
-    case 'SIG': return 24
-    case 'SOA': return 6
-    case 'SPF': return 99
-    case 'SRV': return 33
-    case 'SSHFP': return 44
-    case 'TA': return 32768
-    case 'TKEY': return 249
-    case 'TLSA': return 52
-    case 'TSIG': return 250
-    case 'TXT': return 16
-    case 'AXFR': return 252
-    case 'IXFR': return 251
-    case 'OPT': return 41
-    case 'ANY': return 255
-    case '*': return 255
-  }
-  if (name.toUpperCase().startsWith('UNKNOWN_')) return parseInt(name.slice(8))
+  const upper = name.toUpperCase()
+  if (Object.prototype.hasOwnProperty.call(NAMES, upper)) return NAMES[upper]
+  // RFC 3597 generic type names (TYPE1234) and this library's UNKNOWN_1234
+  const generic = /^(?:TYPE|UNKNOWN_)(\d+)$/.exec(upper)
+  if (generic) return parseInt(generic[1], 10)
   return 0
 }

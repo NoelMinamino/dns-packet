@@ -1180,7 +1180,7 @@ const rsshfp = codec({
 
     const fingerprintLength = b.hexLength(record.fingerprint)
     const expectedLength = getFingerprintLengthForHashType(record.hash)
-    if (fingerprintLength !== expectedLength) {
+    if (expectedLength !== undefined && fingerprintLength !== expectedLength) {
       throw new Error(`Invalid length of fingerprint "${record.fingerprint}" for hashType=${record.hash}: ${fingerprintLength} != ${expectedLength}`)
     }
     b.writeHex(buf, record.fingerprint, offset, offset += fingerprintLength)
@@ -1194,15 +1194,17 @@ const rsshfp = codec({
     const oldOffset = offset
 
     const record = {}
+    const length = b.readUInt16BE(buf, offset)
     offset += 2 // Account for the RDLENGTH field
     record.algorithm = buf[offset]
     offset += 1
     record.hash = buf[offset]
     offset += 1
 
-    const fingerprintLength = getFingerprintLengthForHashType(record.hash)
-    record.fingerprint = b.toHex(buf, offset, offset + fingerprintLength)
-    offset += fingerprintLength
+    // The fingerprint fills the rest of RDATA whatever the hash type (RFC 4255, 3.1)
+    const end = oldOffset + 2 + length
+    record.fingerprint = b.toHex(buf, offset, end)
+    offset = end
     rsshfp.decode.bytes = offset - oldOffset
     return record
   },
@@ -1213,9 +1215,545 @@ const rsshfp = codec({
 function getFingerprintLengthForHashType (hashType) {
   if (hashType === 1) return 20
   if (hashType === 2) return 32
-  throw new Error(`Invalid hashType=${hashType}, supported=1,2`)
+  // Other hash types are unassigned: their length is unknown, so it is not checked
 }
 rsshfp.getFingerprintLengthForHashType = getFingerprintLengthForHashType
+
+// Reads the RDLENGTH at `offset` and returns the offset just past the RDATA,
+// throwing when the RDATA would run past the end of the buffer.
+function rdataEnd (buf, offset) {
+  const end = offset + 2 + b.readUInt16BE(buf, offset)
+  if (end > buf.length) throw new Error('RDATA overflows the buffer')
+  return end
+}
+
+function expectEnd (offset, end, what) {
+  if (offset !== end) throw new Error(`${what}: RDATA length mismatch (${offset} != ${end})`)
+}
+
+const rnaptr = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(rnaptr.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    b.writeUInt16BE(buf, data.order || 0, offset)
+    offset += 2
+    b.writeUInt16BE(buf, data.preference || 0, offset)
+    offset += 2
+    string.encode(data.flags, buf, offset)
+    offset += string.encode.bytes
+    string.encode(data.services, buf, offset)
+    offset += string.encode.bytes
+    string.encode(data.regexp, buf, offset)
+    offset += string.encode.bytes
+    name.encode(data.replacement, buf, offset)
+    offset += name.encode.bytes
+
+    rnaptr.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rnaptr.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+
+    const data = {}
+    offset += 2
+    data.order = b.readUInt16BE(buf, offset)
+    offset += 2
+    data.preference = b.readUInt16BE(buf, offset)
+    offset += 2
+    data.flags = string.decode(buf, offset)
+    offset += string.decode.bytes
+    data.services = string.decode(buf, offset)
+    offset += string.decode.bytes
+    data.regexp = string.decode(buf, offset)
+    offset += string.decode.bytes
+    data.replacement = name.decode(buf, offset)
+    offset += name.decode.bytes
+    expectEnd(offset, end, 'NAPTR')
+
+    rnaptr.decode.bytes = offset - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 6 +
+      string.encodingLength(data.flags) +
+      string.encodingLength(data.services) +
+      string.encodingLength(data.regexp) +
+      name.encodingLength(data.replacement)
+  }
+})
+
+// TLSA (RFC 6698) and SMIMEA (RFC 8162) share the same RDATA format
+const rtlsa = codec({
+  encode (cert, buf, offset) {
+    if (!buf) buf = new Uint8Array(rtlsa.encodingLength(cert))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    const certdata = cert.certificate
+    if (!b.isU8Arr(certdata)) {
+      throw new Error('Certificate must be a Buffer')
+    }
+
+    offset += 2
+    buf[offset++] = cert.usage
+    buf[offset++] = cert.selector
+    buf[offset++] = cert.matchingType
+    b.copy(certdata, buf, offset, 0, certdata.length)
+    offset += certdata.length
+
+    rtlsa.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rtlsa.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 5) throw new Error('TLSA: RDATA too short')
+
+    offset += 2
+    const cert = {}
+    cert.usage = buf[offset++]
+    cert.selector = buf[offset++]
+    cert.matchingType = buf[offset++]
+    cert.certificate = buf.slice(offset, end)
+
+    rtlsa.decode.bytes = end - oldOffset
+    return cert
+  },
+  encodingLength (cert) {
+    return 5 + b.bytelength(cert.certificate)
+  }
+})
+
+// URI (RFC 7553): the target is the rest of RDATA, not a <character-string>
+const ruri = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(ruri.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    b.writeUInt16BE(buf, data.priority || 0, offset)
+    offset += 2
+    b.writeUInt16BE(buf, data.weight || 0, offset)
+    offset += 2
+    offset += b.write(buf, data.target, offset)
+
+    ruri.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, ruri.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 6) throw new Error('URI: RDATA too short')
+
+    offset += 2
+    const data = {}
+    data.priority = b.readUInt16BE(buf, offset)
+    offset += 2
+    data.weight = b.readUInt16BE(buf, offset)
+    offset += 2
+    data.target = toUtf8(buf, offset, end)
+
+    ruri.decode.bytes = end - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 6 + b.bytelength(data.target)
+  }
+})
+
+// OPENPGPKEY (RFC 7929): the whole RDATA is the transferable public key
+const ropenpgpkey = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(ropenpgpkey.encodingLength(data))
+    if (!offset) offset = 0
+
+    if (!b.isU8Arr(data.key)) {
+      throw new Error('Key must be a Buffer')
+    }
+    b.writeUInt16BE(buf, data.key.length, offset)
+    b.copy(data.key, buf, offset + 2, 0, data.key.length)
+
+    ropenpgpkey.encode.bytes = data.key.length + 2
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const end = rdataEnd(buf, offset)
+
+    const data = { key: buf.slice(offset + 2, end) }
+    ropenpgpkey.decode.bytes = end - offset
+    return data
+  },
+  encodingLength (data) {
+    return 2 + data.key.length
+  }
+})
+
+const rnsec3param = codec({
+  encode (record, buf, offset) {
+    if (!buf) buf = new Uint8Array(rnsec3param.encodingLength(record))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    const salt = record.salt
+    if (!b.isU8Arr(salt)) {
+      throw new Error('salt must be a Buffer')
+    }
+
+    offset += 2
+    buf[offset++] = record.algorithm
+    buf[offset++] = record.flags
+    b.writeUInt16BE(buf, record.iterations, offset)
+    offset += 2
+    buf[offset++] = salt.length
+    b.copy(salt, buf, offset, 0, salt.length)
+    offset += salt.length
+
+    rnsec3param.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rnsec3param.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 7) throw new Error('NSEC3PARAM: RDATA too short')
+
+    offset += 2
+    const record = {}
+    record.algorithm = buf[offset++]
+    record.flags = buf[offset++]
+    record.iterations = b.readUInt16BE(buf, offset)
+    offset += 2
+    const saltLength = buf[offset++]
+    record.salt = buf.slice(offset, offset + saltLength)
+    offset += saltLength
+    expectEnd(offset, end, 'NSEC3PARAM')
+
+    rnsec3param.decode.bytes = offset - oldOffset
+    return record
+  },
+  encodingLength (record) {
+    return 7 + record.salt.length
+  }
+})
+
+// ZONEMD (RFC 8976)
+const rzonemd = codec({
+  encode (record, buf, offset) {
+    if (!buf) buf = new Uint8Array(rzonemd.encodingLength(record))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    const digest = record.digest
+    if (!b.isU8Arr(digest)) {
+      throw new Error('Digest must be a Buffer')
+    }
+
+    offset += 2
+    b.writeUInt32BE(buf, record.serial, offset)
+    offset += 4
+    buf[offset++] = record.scheme
+    buf[offset++] = record.algorithm
+    b.copy(digest, buf, offset, 0, digest.length)
+    offset += digest.length
+
+    rzonemd.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rzonemd.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 8) throw new Error('ZONEMD: RDATA too short')
+
+    offset += 2
+    const record = {}
+    record.serial = b.readUInt32BE(buf, offset)
+    offset += 4
+    record.scheme = buf[offset++]
+    record.algorithm = buf[offset++]
+    record.digest = buf.slice(offset, end)
+
+    rzonemd.decode.bytes = end - oldOffset
+    return record
+  },
+  encodingLength (record) {
+    return 8 + record.digest.length
+  }
+})
+
+// CSYNC (RFC 7477)
+const rcsync = codec({
+  encode (record, buf, offset) {
+    if (!buf) buf = new Uint8Array(rcsync.encodingLength(record))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    b.writeUInt32BE(buf, record.serial, offset)
+    offset += 4
+    b.writeUInt16BE(buf, record.flags || 0, offset)
+    offset += 2
+    typebitmap.encode(record.rrtypes, buf, offset)
+    offset += typebitmap.encode.bytes
+
+    rcsync.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rcsync.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 8) throw new Error('CSYNC: RDATA too short')
+
+    offset += 2
+    const record = {}
+    record.serial = b.readUInt32BE(buf, offset)
+    offset += 4
+    record.flags = b.readUInt16BE(buf, offset)
+    offset += 2
+    record.rrtypes = typebitmap.decode(buf, offset, end - offset)
+    offset += typebitmap.decode.bytes
+    expectEnd(offset, end, 'CSYNC')
+
+    rcsync.decode.bytes = offset - oldOffset
+    return record
+  },
+  encodingLength (record) {
+    return 8 + typebitmap.encodingLength(record.rrtypes)
+  }
+})
+
+// LOC (RFC 1876). Values are kept as on the wire:
+//   size / horizontalPrecision / verticalPrecision : one byte, mantissa (high nibble) and power of ten (low nibble), in cm
+//   latitude / longitude : thousandths of an arc second, offset by 2^31 (2^31 is the equator / prime meridian)
+//   altitude : cm, offset by 100000 m (10000000 is sea level)
+const rloc = codec({
+  encode (record, buf, offset) {
+    if (!buf) buf = new Uint8Array(rloc.encodingLength(record))
+    if (!offset) offset = 0
+
+    b.writeUInt16BE(buf, 16, offset)
+    offset += 2
+    buf[offset++] = record.version || 0
+    buf[offset++] = record.size
+    buf[offset++] = record.horizontalPrecision
+    buf[offset++] = record.verticalPrecision
+    b.writeUInt32BE(buf, record.latitude, offset)
+    b.writeUInt32BE(buf, record.longitude, offset + 4)
+    b.writeUInt32BE(buf, record.altitude, offset + 8)
+
+    rloc.encode.bytes = 18
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const end = rdataEnd(buf, offset)
+    offset += 2
+    const version = buf[offset]
+    if (version !== 0) throw new Error(`LOC: unsupported version ${version}`)
+    expectEnd(offset + 16, end, 'LOC')
+
+    const record = {
+      version,
+      size: buf[offset + 1],
+      horizontalPrecision: buf[offset + 2],
+      verticalPrecision: buf[offset + 3],
+      latitude: b.readUInt32BE(buf, offset + 4),
+      longitude: b.readUInt32BE(buf, offset + 8),
+      altitude: b.readUInt32BE(buf, offset + 12)
+    }
+    rloc.decode.bytes = 18
+    return record
+  },
+  bytes: 18
+})
+
+// SVCB / HTTPS (RFC 9460). `params` is an object keyed by SvcParamKey name, in wire order:
+//   mandatory: ['alpn', ...]  alpn: ['h2', ...]  'no-default-alpn': true  port: 443
+//   ipv4hint: ['192.0.2.1', ...]  ech: Uint8Array  ipv6hint: ['2001:db8::1', ...]
+//   dohpath: '/dns-query{?dns}' (RFC 9461)  ohttp: true (RFC 9540)
+// Keys without a known format are named keyNNNNN and hold the raw value as a Uint8Array.
+const SVC_PARAM_KEYS = ['mandatory', 'alpn', 'no-default-alpn', 'port', 'ipv4hint', 'ech', 'ipv6hint', 'dohpath', 'ohttp']
+
+function svcParamKeyToString (key) {
+  return SVC_PARAM_KEYS[key] || `key${key}`
+}
+
+function svcParamKeyToNumber (key) {
+  const known = SVC_PARAM_KEYS.indexOf(key)
+  if (known !== -1) return known
+  const generic = /^key(\d+)$/.exec(key)
+  if (generic) return parseInt(generic[1], 10)
+  throw new Error(`Unknown SvcParamKey "${key}"`)
+}
+
+function svcParamValueEncode (key, value) {
+  switch (key) {
+    case 'mandatory': {
+      const out = new Uint8Array(value.length * 2)
+      value.forEach((k, i) => b.writeUInt16BE(out, svcParamKeyToNumber(k), i * 2))
+      return out
+    }
+    case 'alpn': {
+      const ids = value.map(id => b.from(id))
+      const out = new Uint8Array(ids.reduce((sum, id) => sum + id.length + 1, 0))
+      let offset = 0
+      for (const id of ids) {
+        out[offset++] = id.length
+        out.set(id, offset)
+        offset += id.length
+      }
+      return out
+    }
+    case 'no-default-alpn':
+    case 'ohttp':
+      return new Uint8Array(0)
+    case 'port': {
+      const out = new Uint8Array(2)
+      b.writeUInt16BE(out, value, 0)
+      return out
+    }
+    case 'ipv4hint': {
+      const out = new Uint8Array(value.length * 4)
+      value.forEach((host, i) => ip.v4.encode(host, out, i * 4))
+      return out
+    }
+    case 'ipv6hint': {
+      const out = new Uint8Array(value.length * 16)
+      value.forEach((host, i) => ip.v6.encode(host, out, i * 16))
+      return out
+    }
+    case 'dohpath':
+      return b.from(value)
+  }
+  if (!b.isU8Arr(value)) throw new Error(`SvcParam ${key} must be a Buffer`)
+  return value
+}
+
+function svcParamValueDecode (key, buf, start, end) {
+  const len = end - start
+  switch (key) {
+    case 'mandatory': {
+      if (len === 0 || len % 2) throw new Error('SVCB: invalid mandatory length')
+      const keys = []
+      for (let o = start; o < end; o += 2) keys.push(svcParamKeyToString(b.readUInt16BE(buf, o)))
+      return keys
+    }
+    case 'alpn': {
+      if (len === 0) throw new Error('SVCB: empty alpn')
+      const ids = []
+      for (let o = start; o < end;) {
+        const idLen = buf[o++]
+        if (idLen === 0 || o + idLen > end) throw new Error('SVCB: invalid alpn-id')
+        ids.push(toUtf8(buf, o, o + idLen))
+        o += idLen
+      }
+      return ids
+    }
+    case 'no-default-alpn':
+    case 'ohttp':
+      if (len !== 0) throw new Error(`SVCB: ${key} must be empty`)
+      return true
+    case 'port':
+      if (len !== 2) throw new Error('SVCB: invalid port length')
+      return b.readUInt16BE(buf, start)
+    case 'ipv4hint': {
+      if (len === 0 || len % 4) throw new Error('SVCB: invalid ipv4hint length')
+      const hosts = []
+      for (let o = start; o < end; o += 4) hosts.push(ip.v4.decode(buf, o))
+      return hosts
+    }
+    case 'ipv6hint': {
+      if (len === 0 || len % 16) throw new Error('SVCB: invalid ipv6hint length')
+      const hosts = []
+      for (let o = start; o < end; o += 16) hosts.push(ip.v6.decode(buf, o))
+      return hosts
+    }
+    case 'dohpath':
+      return toUtf8(buf, start, end)
+  }
+  return buf.slice(start, end)
+}
+
+function svcParamsToWire (params) {
+  return Object.keys(params || {})
+    .map(key => ({ key: svcParamKeyToNumber(key), value: svcParamValueEncode(key, params[key]) }))
+    .sort((x, y) => x.key - y.key)
+}
+
+const rsvcb = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(rsvcb.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    b.writeUInt16BE(buf, data.priority || 0, offset)
+    offset += 2
+    name.encode(data.targetName, buf, offset)
+    offset += name.encode.bytes
+    for (const { key, value } of svcParamsToWire(data.params)) {
+      b.writeUInt16BE(buf, key, offset)
+      b.writeUInt16BE(buf, value.length, offset + 2)
+      buf.set(value, offset + 4)
+      offset += 4 + value.length
+    }
+
+    rsvcb.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rsvcb.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+
+    offset += 2
+    const data = {}
+    data.priority = b.readUInt16BE(buf, offset)
+    offset += 2
+    data.targetName = name.decode(buf, offset)
+    offset += name.decode.bytes
+    data.params = {}
+
+    let lastKey = -1
+    while (offset < end) {
+      if (offset + 4 > end) throw new Error('SVCB: truncated SvcParam')
+      const keyNum = b.readUInt16BE(buf, offset)
+      const len = b.readUInt16BE(buf, offset + 2)
+      offset += 4
+      if (keyNum <= lastKey) throw new Error('SVCB: SvcParamKeys must be in strictly increasing order')
+      if (offset + len > end) throw new Error('SVCB: SvcParamValue overflows RDATA')
+      lastKey = keyNum
+      const key = svcParamKeyToString(keyNum)
+      data.params[key] = svcParamValueDecode(key, buf, offset, offset + len)
+      offset += len
+    }
+    expectEnd(offset, end, 'SVCB')
+
+    rsvcb.decode.bytes = offset - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 4 + name.encodingLength(data.targetName) +
+      svcParamsToWire(data.params).reduce((sum, { value }) => sum + 4 + value.length, 0)
+  }
+})
 
 function renc (type) {
   switch (type.toUpperCase()) {
@@ -1240,6 +1778,21 @@ function renc (type) {
     case 'NSEC3': return rnsec3
     case 'SSHFP': return rsshfp
     case 'DS': return rds
+    case 'CDS': return rds
+    case 'TA': return rds
+    case 'DLV': return rds
+    case 'CDNSKEY': return rdnskey
+    case 'NAPTR': return rnaptr
+    case 'TLSA': return rtlsa
+    case 'SMIMEA': return rtlsa
+    case 'URI': return ruri
+    case 'OPENPGPKEY': return ropenpgpkey
+    case 'NSEC3PARAM': return rnsec3param
+    case 'ZONEMD': return rzonemd
+    case 'CSYNC': return rcsync
+    case 'LOC': return rloc
+    case 'SVCB': return rsvcb
+    case 'HTTPS': return rsvcb
   }
   return runknown
 }
@@ -1307,9 +1860,20 @@ export const answer = codec({
       a.class = classes.toString(klass & NOT_FLUSH_MASK)
       a.flush = !!(klass & FLUSH_MASK)
 
+      // A malformed RDATA must not make the whole packet undecodable: keep the
+      // raw bytes in `data` and the reason in `dataError`, then skip by RDLENGTH.
+      const rdataOffset = offset + 8
+      const end = rdataEnd(buf, rdataOffset)
       const enc = renc(a.type)
-      a.data = enc.decode(buf, offset + 8)
-      offset += 8 + enc.decode.bytes
+      try {
+        a.data = enc.decode(buf, rdataOffset)
+        expectEnd(rdataOffset + enc.decode.bytes, end, a.type)
+      } catch (err) {
+        if (enc === runknown) throw err
+        a.data = runknown.decode(buf, rdataOffset)
+        a.dataError = err.message
+      }
+      offset = end
     }
 
     answer.decode.bytes = offset - oldOffset
@@ -1390,6 +1954,17 @@ export {
   rnsec3 as nsec3,
   rds as ds,
   rsshfp as sshfp,
+  rnaptr as naptr,
+  rtlsa as tlsa,
+  rtlsa as smimea,
+  ruri as uri,
+  ropenpgpkey as openpgpkey,
+  rnsec3param as nsec3param,
+  rzonemd as zonemd,
+  rcsync as csync,
+  rloc as loc,
+  rsvcb as svcb,
+  rsvcb as https,
   renc as enc
 }
 

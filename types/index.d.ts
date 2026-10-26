@@ -62,6 +62,8 @@ export interface BaseAnswer<T, D> {
  ttl?: number | undefined;
  class?: RecordClass | undefined;
  data: D;
+ /** Set when the RDATA could not be decoded; `data` then holds the raw RDATA bytes. */
+ dataError?: string;
 }
 
 /**
@@ -77,26 +79,16 @@ export type OtherRecordType =
  | "AFSDB"
  | "APL"
  | "AXFR"
- | "CDNSKEY"
- | "CDS"
  | "CERT"
  | "DHCID"
- | "DLV"
  | "HIP"
  | "IXFR"
  | "IPSECKEY"
  | "KEY"
  | "KX"
- | "LOC"
- | "NAPTR"
- | "NSEC3PARAM"
  | "SIG"
- | "SSHFP"
- | "TA"
  | "TKEY"
- | "TLSA"
- | "TSIG"
- | "URI";
+ | "TSIG";
 
 export type StringAnswer = BaseAnswer<StringRecordType, string>;
 export type SrvAnswer = BaseAnswer<"SRV", SrvData>;
@@ -107,12 +99,22 @@ export type CaaAnswer = BaseAnswer<"CAA", CaaData>;
 export type MxAnswer = BaseAnswer<"MX", MxData>;
 export type NullAnswer = BaseAnswer<"NULL", Uint8Array>;
 export type OptAnswer = BaseAnswer<"OPT", OptionData[]>;
-export type DNSKeyAnswer = BaseAnswer<"DNSKEY", DNSKeyData>;
+export type DNSKeyAnswer = BaseAnswer<"DNSKEY" | "CDNSKEY", DNSKeyData>;
 export type RRSigAnswer = BaseAnswer<"RRSIG", RRSigData>;
 export type RPAnswer = BaseAnswer<"RP", RPData>;
 export type NSecAnswer = BaseAnswer<"NSEC", NSecData>;
 export type NSec3Answer = BaseAnswer<"NSEC3", NSec3Data>;
-export type DSAnswer = BaseAnswer<"DS", DigestData>;
+export type DSAnswer = BaseAnswer<"DS" | "CDS" | "TA" | "DLV", DigestData>;
+export type SSHFPAnswer = BaseAnswer<"SSHFP", SSHFP>;
+export type NaptrAnswer = BaseAnswer<"NAPTR", NaptrData>;
+export type TlsaAnswer = BaseAnswer<"TLSA" | "SMIMEA", TlsaData>;
+export type UriAnswer = BaseAnswer<"URI", UriData>;
+export type OpenPgpKeyAnswer = BaseAnswer<"OPENPGPKEY", OpenPgpKeyData>;
+export type NSec3ParamAnswer = BaseAnswer<"NSEC3PARAM", NSec3ParamData>;
+export type ZoneMDAnswer = BaseAnswer<"ZONEMD", ZoneMDData>;
+export type CSyncAnswer = BaseAnswer<"CSYNC", CSyncData>;
+export type LocAnswer = BaseAnswer<"LOC", LocData>;
+export type SvcbAnswer = BaseAnswer<"SVCB" | "HTTPS", SvcbData>;
 export type BufferAnswer = BaseAnswer<OtherRecordType, Uint8Array>;
 
 export type Answer =
@@ -131,6 +133,16 @@ export type Answer =
  | NSecAnswer
  | NSec3Answer
  | DSAnswer
+ | SSHFPAnswer
+ | NaptrAnswer
+ | TlsaAnswer
+ | UriAnswer
+ | OpenPgpKeyAnswer
+ | NSec3ParamAnswer
+ | ZoneMDAnswer
+ | CSyncAnswer
+ | LocAnswer
+ | SvcbAnswer
  | BufferAnswer;
 
 export interface Packet {
@@ -193,8 +205,76 @@ export type SSHFPHash = 1 | 2;
 export type SSHFPFingerPrintLengthFor <T extends SSHFPHash> = T extends 1 ? 20 : 32;
 export interface SSHFP {
   algorithm: number;
-  hash: SSHFPHash;
+  /** 1 (SHA-1) and 2 (SHA-256) are checked for length; other values are passed through. */
+  hash: SSHFPHash | number;
   fingerprint: string;
+}
+
+export interface NaptrData {
+  order: number;
+  preference: number;
+  flags: string;
+  services: string;
+  regexp: string;
+  replacement: string;
+}
+export interface TlsaData {
+  usage: number;
+  selector: number;
+  matchingType: number;
+  certificate: Uint8Array;
+}
+export interface UriData {
+  priority: number;
+  weight: number;
+  target: string;
+}
+export interface OpenPgpKeyData {
+  key: Uint8Array;
+}
+export interface NSec3ParamData {
+  algorithm: number;
+  flags: number;
+  iterations: number;
+  salt: Uint8Array;
+}
+export interface ZoneMDData {
+  serial: number;
+  scheme: number;
+  algorithm: number;
+  digest: Uint8Array;
+}
+export interface CSyncData {
+  serial: number;
+  flags: number;
+  rrtypes: RecordType[];
+}
+/** RFC 1876 values as on the wire (see index.mjs for their units). */
+export interface LocData {
+  version?: 0;
+  size: number;
+  horizontalPrecision: number;
+  verticalPrecision: number;
+  latitude: number;
+  longitude: number;
+  altitude: number;
+}
+export interface SvcParams {
+  mandatory?: string[];
+  alpn?: string[];
+  'no-default-alpn'?: true;
+  port?: number;
+  ipv4hint?: string[];
+  ech?: Uint8Array;
+  ipv6hint?: string[];
+  dohpath?: string;
+  ohttp?: true;
+  [key: `key${number}`]: Uint8Array;
+}
+export interface SvcbData {
+  priority: number;
+  targetName: string;
+  params: SvcParams;
 }
 
 export interface NSecData {
@@ -239,6 +319,15 @@ export type RRSigCodec = Codec<RRSigData>;
 export type RPCodec = Codec<RPData>;
 export type NSecCodec = Codec<NSecData>;
 export type NSec3Codec = Codec<NSec3Data>;
+export type NaptrCodec = Codec<NaptrData>;
+export type TlsaCodec = Codec<TlsaData>;
+export type UriCodec = Codec<UriData>;
+export type OpenPgpKeyCodec = Codec<OpenPgpKeyData>;
+export type NSec3ParamCodec = Codec<NSec3ParamData>;
+export type ZoneMDCodec = Codec<ZoneMDData>;
+export type CSyncCodec = Codec<CSyncData>;
+export type LocCodec = Codec<LocData>;
+export type SvcbCodec = Codec<SvcbData>;
 export type PacketCodec = Codec<Packet>;
 
 export type SingleQuestionPacket = Omit<Packet, 'questions'> & {
@@ -273,6 +362,17 @@ export const rrsig: RRSigCodec;
 export const rp: RPCodec;
 export const nsec: NSecCodec;
 export const nsec3: NSec3Codec;
+export const naptr: NaptrCodec;
+export const tlsa: TlsaCodec;
+export const smimea: TlsaCodec;
+export const uri: UriCodec;
+export const openpgpkey: OpenPgpKeyCodec;
+export const nsec3param: NSec3ParamCodec;
+export const zonemd: ZoneMDCodec;
+export const csync: CSyncCodec;
+export const loc: LocCodec;
+export const svcb: SvcbCodec;
+export const https: SvcbCodec;
 export const packet: PacketCodec;
 export const query: QueryCodec;
 export const response: ResponseCodec;

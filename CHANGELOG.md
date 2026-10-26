@@ -1,3 +1,12 @@
+# Version 6.2.0-nm.0 - 2026-10-26 (@noelminamino/dns-packet)
+
+- Feature: All IANA-registered RR type names in types.mjs; toType() accepts RFC 3597 TYPE<number>.
+- Feature: Decode/encode SVCB, HTTPS, TLSA, SMIMEA, NAPTR, URI, OPENPGPKEY, NSEC3PARAM, ZONEMD, CSYNC and LOC.
+- Feature: CDS, TA and DLV use the DS codec; CDNSKEY uses the DNSKEY codec.
+- Feature: A record whose RDATA cannot be decoded keeps the raw bytes in data and the reason in dataError
+    instead of making the whole packet fail.
+- Fix: SSHFP decoding no longer throws on unassigned hash types; the fingerprint is the rest of RDATA.
+
 # Version 6.0.0 - 2022-05-31
 
 - Breaking: Node.js Buffer is not used by the library anymore and Uint8Array instances will be returned

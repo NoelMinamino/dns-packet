@@ -184,7 +184,7 @@ And an answer, additional, or authority looks like this
 }
 ```
 
-#### `DNSKEY`
+#### `DNSKEY` / `CDNSKEY`
 
 ``` js
 {
@@ -194,7 +194,7 @@ And an answer, additional, or authority looks like this
 }
 ```
 
-#### `DS`
+#### `DS` / `CDS` / `TA` / `DLV`
 
 ``` js
 {
@@ -381,6 +381,128 @@ The options `PADDING`, `CLIENT_SUBNET`, `TCP_KEEPALIVE` and `KEY_TAG` support en
 ```
 
 When encoding, scalar values are converted to an array and strings are converted to UTF-8 encoded Buffers. When decoding, the return value will always be an array of Buffer.
+
+#### `CSYNC`
+
+``` js
+{
+  serial: 66,
+  flags: 3,
+  rrtypes: ['A', 'NS', 'AAAA']
+}
+```
+
+#### `LOC`
+
+Values are kept as on the wire (RFC 1876).
+
+``` js
+{
+  version: 0,
+  size: 0x33, // mantissa (high nibble) and power of ten (low nibble), in cm
+  horizontalPrecision: 0x16,
+  verticalPrecision: 0x13,
+  latitude: 0x89170b30, // thousandths of an arc second, 2^31 is the equator
+  longitude: 0x70be1c38, // thousandths of an arc second, 2^31 is the prime meridian
+  altitude: 0x00989530 // cm, 10000000 is sea level
+}
+```
+
+#### `NAPTR`
+
+``` js
+{
+  order: 100,
+  preference: 10,
+  flags: 's',
+  services: 'SIP+D2U',
+  regexp: '!^.*$!sip:customer-service@example.com!',
+  replacement: '_sip._udp.example.com'
+}
+```
+
+#### `NSEC3PARAM`
+
+``` js
+{
+  algorithm: 1,
+  flags: 0,
+  iterations: 0,
+  salt: Buffer
+}
+```
+
+#### `OPENPGPKEY`
+
+``` js
+{
+  key: Buffer
+}
+```
+
+#### `SVCB` / `HTTPS`
+
+`params` is keyed by SvcParamKey name. Keys are written in increasing key order when encoding.
+Keys without a known format are named `keyNNNNN` and hold the raw value.
+
+``` js
+{
+  priority: 1,
+  targetName: '.',
+  params: {
+    mandatory: ['alpn'],
+    alpn: ['h2', 'h3'],
+    'no-default-alpn': true,
+    port: 443,
+    ipv4hint: ['192.0.2.1'],
+    ech: Buffer,
+    ipv6hint: ['2001:db8::1'],
+    dohpath: '/dns-query{?dns}',
+    ohttp: true,
+    key65000: Buffer
+  }
+}
+```
+
+#### `TLSA` / `SMIMEA`
+
+``` js
+{
+  usage: 3,
+  selector: 1,
+  matchingType: 1,
+  certificate: Buffer
+}
+```
+
+#### `URI`
+
+``` js
+{
+  priority: 10,
+  weight: 1,
+  target: 'https://www.example.com/'
+}
+```
+
+#### `ZONEMD`
+
+``` js
+{
+  serial: 2018031900,
+  scheme: 1,
+  algorithm: 1,
+  digest: Buffer
+}
+```
+
+### Malformed RDATA
+
+When the RDATA of a known record type cannot be decoded, the record is still returned with the
+raw RDATA bytes in `data` and the reason in `dataError`, and the rest of the packet keeps decoding.
+
+Other record types are decoded as a raw `Buffer`. Their type is `UNKNOWN_<number>` when not
+registered with IANA; `types.toType()` also accepts the RFC 3597 form `TYPE<number>`.
 
 If you need another record type, open an issue and we'll try to add it.
 
