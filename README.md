@@ -787,6 +787,8 @@ Keys without a known format are named `keyNNNNN` and hold the raw value.
 
 When the RDATA of a known record type cannot be decoded, the record is still returned with the
 raw RDATA bytes in `data` and the reason in `dataError`, and the rest of the packet keeps decoding.
+For OPT, an option that does not fit in RDLENGTH sets `dataError`, and `options` holds the options
+decoded before it. RDATA that runs past the end of the buffer (a truncated packet) still throws.
 
 Other record types are decoded as a raw `Buffer`. Their type is `UNKNOWN_<number>` when not
 registered with IANA; `types.toType()` also accepts the RFC 3597 form `TYPE<number>`.

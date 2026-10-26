@@ -1285,6 +1285,36 @@ tape('partial decode', function (t) {
   t.end()
 })
 
+tape('opt: truncated record and options overflowing RDLENGTH', function (t) {
+  const ede = { code: 'EDE', infoCode: 18, extraText: 'blocked' }
+
+  // RDATA cut by the end of the buffer: a truncated packet, not a short EXTRA-TEXT
+  const full = packet.encode({ type: 'response', additionals: [{ type: 'OPT', name: '.', udpPayloadSize: 1232, options: [ede] }] })
+  const cut = full.subarray(0, full.length - 5)
+  t.throws(() => packet.decode(cut), /RDATA overflows/)
+  const partial = packet.decode(cut, 0, { partial: true })
+  t.same(partial.error.section, 'additionals')
+  t.same(partial.additionals, [])
+
+  // An option whose length goes past RDLENGTH, with a record after the OPT
+  const buf = Buffer.from(packet.encode({
+    type: 'response',
+    additionals: [
+      { type: 'OPT', name: '.', udpPayloadSize: 1232, options: [{ code: 'NSID', data: Buffer.from('ns01') }, ede] },
+      { type: 'A', name: 'example.com', ttl: 60, data: '192.0.2.1' }
+    ]
+  }))
+  // OPT starts after the 12-byte header: name (1), type, class, ttl (8), RDLENGTH (2), then NSID (4 + 4)
+  const edeLength = 12 + 1 + 8 + 2 + 8 + 2
+  buf.writeUInt16BE(200, edeLength)
+  const decoded = packet.decode(buf)
+  const opt = decoded.additionals[0]
+  t.match(opt.dataError, /option overflows RDATA/)
+  t.same(opt.options.map(o => o.type), ['NSID'], 'options before the bad one are kept')
+  t.same(decoded.additionals[1].data, '192.0.2.1', 'the next record is read from the RDLENGTH boundary')
+  t.end()
+})
+
 tape('classes, opcodes, rcodes and fullRcode', function (t) {
   t.same(opcodes.toString(6), 'DSO')
   t.same(opcodes.toOpcode('OPCODE_6'), 6)

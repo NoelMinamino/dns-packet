@@ -874,13 +874,17 @@ const ropt = codec({
     const oldOffset = offset
 
     const options = []
-    let rdlen = b.readUInt16BE(buf, offset)
+    const end = rdataEnd(buf, offset)
     offset += 2
-    let o = 0
-    while (rdlen > 0) {
-      options[o++] = roption.decode(buf, offset)
+    while (offset < end) {
+      // Every option needs its 4-byte header and its OPTION-DATA inside RDATA
+      if (offset + 4 > end || offset + 4 + b.readUInt16BE(buf, offset + 2) > end) {
+        const err = new Error('OPT: option overflows RDATA')
+        err.options = options
+        throw err
+      }
+      options.push(roption.decode(buf, offset))
       offset += roption.decode.bytes
-      rdlen -= roption.decode.bytes
     }
     ropt.decode.bytes = offset - oldOffset
     return options
@@ -2702,8 +2706,17 @@ export const answer = codec({
       a.ednsVersion = buf[offset + 5]
       a.flags = b.readUInt16BE(buf, offset + 6)
       a.flag_do = ((a.flags >> 15) & 0x1) === 1
-      a.options = ropt.decode(buf, offset + 8)
-      offset += 8 + ropt.decode.bytes
+      // Like other records: RDATA past the end of the buffer means a truncated packet (throws), while
+      // options that do not fit in RDLENGTH keep the options decoded so far and the reason in `dataError`.
+      const rdataOffset = offset + 8
+      const end = rdataEnd(buf, rdataOffset)
+      try {
+        a.options = ropt.decode(buf, rdataOffset)
+      } catch (err) {
+        a.options = err.options || []
+        a.dataError = err.message
+      }
+      offset = end
     } else {
       const klass = b.readUInt16BE(buf, offset + 2)
       a.ttl = b.readUInt32BE(buf, offset + 4)

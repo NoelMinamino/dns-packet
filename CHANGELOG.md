@@ -1,3 +1,11 @@
+# Unreleased
+
+- Fix: an OPT record cut by the end of the buffer was decoded with silently shortened options; it now
+    throws like other truncated records (and is reported by `{ partial: true }`).
+- Fix: an EDNS option longer than the OPT RDLENGTH made decoding read into the next record; the OPT
+    record now keeps the options decoded so far and the reason in `dataError`, and decoding continues
+    after its RDATA.
+
 # Version 7.1.0 - 2026-10-26 (@noelminamino/dns-packet)
 
 - Feature: every IANA EDNS option code has a name. Codes 15 and up change from OPTION_<code> to EDE,
