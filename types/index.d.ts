@@ -69,26 +69,17 @@ export interface BaseAnswer<T, D> {
 /**
  * Record types for which the library will provide a string in the data field.
  */
-export type StringRecordType = "A" | "AAAA" | "CNAME" | "DNAME" | "NS" | "PTR";
+export type StringRecordType = "A" | "AAAA" | "CNAME" | "DNAME" | "NS" | "PTR" | "MD" | "MF" | "MB" | "MG" | "MR" | "NSAP-PTR" | "EUI48" | "EUI64";
 
 /**
  * Record types for which the library does not attempt to process the data
  * field.
  */
 export type OtherRecordType =
- | "AFSDB"
- | "APL"
  | "AXFR"
- | "CERT"
- | "DHCID"
- | "HIP"
  | "IXFR"
- | "IPSECKEY"
  | "KEY"
- | "KX"
- | "SIG"
- | "TKEY"
- | "TSIG";
+ | "SIG";
 
 export type StringAnswer = BaseAnswer<StringRecordType, string>;
 export type SrvAnswer = BaseAnswer<"SRV", SrvData>;
@@ -96,7 +87,23 @@ export type HInfoAnswer = BaseAnswer<"HINFO", HInfoData>;
 export type SoaAnswer = BaseAnswer<"SOA", SoaData>;
 export type TxtAnswer = BaseAnswer<"TXT", TxtData>;
 export type CaaAnswer = BaseAnswer<"CAA", CaaData>;
-export type MxAnswer = BaseAnswer<"MX", MxData>;
+export type MxAnswer = BaseAnswer<"MX" | "KX", MxData>;
+export type MInfoAnswer = BaseAnswer<"MINFO", MInfoData>;
+export type AfsdbAnswer = BaseAnswer<"AFSDB", AfsdbData>;
+export type RtAnswer = BaseAnswer<"RT", RtData>;
+export type PxAnswer = BaseAnswer<"PX", PxData>;
+export type CertAnswer = BaseAnswer<"CERT", CertData>;
+export type AplAnswer = BaseAnswer<"APL", AplItem[]>;
+export type DhcidAnswer = BaseAnswer<"DHCID", DhcidData>;
+export type IpseckeyAnswer = BaseAnswer<"IPSECKEY", IpseckeyData>;
+export type HipAnswer = BaseAnswer<"HIP", HipData>;
+export type NidAnswer = BaseAnswer<"NID", NidData>;
+export type L32Answer = BaseAnswer<"L32" | "L64", LocatorData>;
+export type LpAnswer = BaseAnswer<"LP", LpData>;
+export type AmtRelayAnswer = BaseAnswer<"AMTRELAY", AmtRelayData>;
+export type DsyncAnswer = BaseAnswer<"DSYNC", DsyncData>;
+export type TkeyAnswer = BaseAnswer<"TKEY", TkeyData>;
+export type TsigAnswer = BaseAnswer<"TSIG", TsigData>;
 export type NullAnswer = BaseAnswer<"NULL", Uint8Array>;
 export type OptAnswer = BaseAnswer<"OPT", OptionData[]>;
 export type DNSKeyAnswer = BaseAnswer<"DNSKEY" | "CDNSKEY", DNSKeyData>;
@@ -125,6 +132,22 @@ export type Answer =
  | TxtAnswer
  | CaaAnswer
  | MxAnswer
+ | MInfoAnswer
+ | AfsdbAnswer
+ | RtAnswer
+ | PxAnswer
+ | CertAnswer
+ | AplAnswer
+ | DhcidAnswer
+ | IpseckeyAnswer
+ | HipAnswer
+ | NidAnswer
+ | L32Answer
+ | LpAnswer
+ | AmtRelayAnswer
+ | DsyncAnswer
+ | TkeyAnswer
+ | TsigAnswer
  | NullAnswer
  | OptAnswer
  | DNSKeyAnswer
@@ -210,6 +233,100 @@ export interface SSHFP {
   fingerprint: string;
 }
 
+export interface MInfoData {
+  rmailbx: string;
+  emailbx: string;
+}
+export interface AfsdbData {
+  subtype: number;
+  hostname: string;
+}
+export interface RtData {
+  preference: number;
+  host: string;
+}
+export interface PxData {
+  preference: number;
+  map822: string;
+  mapx400: string;
+}
+export interface CertData {
+  certType: number;
+  keyTag: number;
+  algorithm: number;
+  certificate: Uint8Array;
+}
+/** address is set for family 1 (IPv4) and 2 (IPv6); other families keep the raw AFDPART in data. */
+export interface AplItem {
+  family: number;
+  prefix: number;
+  negation: boolean;
+  address?: string;
+  data?: Uint8Array;
+}
+export interface DhcidData {
+  data: Uint8Array;
+}
+/** gateway: null (type 0), IPv4 (1), IPv6 (2) or domain name (3) */
+export interface IpseckeyData {
+  precedence: number;
+  gatewayType: 0 | 1 | 2 | 3;
+  algorithm: number;
+  gateway: string | null;
+  publicKey: Uint8Array;
+}
+export interface HipData {
+  algorithm: number;
+  hit: Uint8Array;
+  publicKey: Uint8Array;
+  rendezvousServers?: string[];
+}
+export interface NidData {
+  preference: number;
+  /** four 16-bit hex groups, e.g. '0014:4fff:ff20:8b37' */
+  nodeId: string;
+}
+/** L32: IPv4 address string. L64: four 16-bit hex groups. */
+export interface LocatorData {
+  preference: number;
+  locator: string;
+}
+export interface LpData {
+  preference: number;
+  fqdn: string;
+}
+/** relay: null (type 0), IPv4 (1), IPv6 (2) or domain name (3) */
+export interface AmtRelayData {
+  precedence: number;
+  discoveryOptional: boolean;
+  relayType: 0 | 1 | 2 | 3;
+  relay: string | null;
+}
+export interface DsyncData {
+  rrtype: RecordType;
+  scheme: number;
+  port: number;
+  target: string;
+}
+export interface TkeyData {
+  algorithm: string;
+  inception: number;
+  expiration: number;
+  mode: number;
+  error: number;
+  key: Uint8Array;
+  other: Uint8Array;
+}
+export interface TsigData {
+  algorithm: string;
+  /** seconds since the epoch (48 bits) */
+  timeSigned: number;
+  fudge: number;
+  mac: Uint8Array;
+  originalId: number;
+  error: number;
+  other: Uint8Array;
+}
 export interface NaptrData {
   order: number;
   preference: number;
@@ -328,6 +445,23 @@ export type ZoneMDCodec = Codec<ZoneMDData>;
 export type CSyncCodec = Codec<CSyncData>;
 export type LocCodec = Codec<LocData>;
 export type SvcbCodec = Codec<SvcbData>;
+export type MInfoCodec = Codec<MInfoData>;
+export type AfsdbCodec = Codec<AfsdbData>;
+export type RtCodec = Codec<RtData>;
+export type PxCodec = Codec<PxData>;
+export type CertCodec = Codec<CertData>;
+export type AplCodec = Codec<AplItem[]>;
+export type DhcidCodec = Codec<DhcidData>;
+export type IpseckeyCodec = Codec<IpseckeyData>;
+export type HipCodec = Codec<HipData>;
+export type EuiCodec = Codec<string>;
+export type NidCodec = Codec<NidData>;
+export type LocatorCodec = Codec<LocatorData>;
+export type LpCodec = Codec<LpData>;
+export type AmtRelayCodec = Codec<AmtRelayData>;
+export type DsyncCodec = Codec<DsyncData>;
+export type TkeyCodec = Codec<TkeyData>;
+export type TsigCodec = Codec<TsigData>;
 export type PacketCodec = Codec<Packet>;
 
 export type SingleQuestionPacket = Omit<Packet, 'questions'> & {
@@ -373,6 +507,26 @@ export const csync: CSyncCodec;
 export const loc: LocCodec;
 export const svcb: SvcbCodec;
 export const https: SvcbCodec;
+export const minfo: MInfoCodec;
+export const afsdb: AfsdbCodec;
+export const rt: RtCodec;
+export const kx: MxCodec;
+export const px: PxCodec;
+export const cert: CertCodec;
+export const apl: AplCodec;
+export const dhcid: DhcidCodec;
+export const ipseckey: IpseckeyCodec;
+export const hip: HipCodec;
+export const eui48: EuiCodec;
+export const eui64: EuiCodec;
+export const nid: NidCodec;
+export const l32: LocatorCodec;
+export const l64: LocatorCodec;
+export const lp: LpCodec;
+export const amtrelay: AmtRelayCodec;
+export const dsync: DsyncCodec;
+export const tkey: TkeyCodec;
+export const tsig: TsigCodec;
 export const packet: PacketCodec;
 export const query: QueryCodec;
 export const response: ResponseCodec;

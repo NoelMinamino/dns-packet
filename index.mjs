@@ -1755,6 +1755,413 @@ const rsvcb = codec({
   }
 })
 
+// Field kinds for records with a fixed sequence of fields (see fieldsCodec)
+const FIELD_KINDS = {
+  u8: {
+    length: () => 1,
+    encode: (v, buf, o) => { buf[o] = v || 0; return 1 },
+    decode: (buf, o) => [buf[o], 1]
+  },
+  u16: {
+    length: () => 2,
+    encode: (v, buf, o) => { b.writeUInt16BE(buf, v || 0, o); return 2 },
+    decode: (buf, o) => [b.readUInt16BE(buf, o), 2]
+  },
+  u32: {
+    length: () => 4,
+    encode: (v, buf, o) => { b.writeUInt32BE(buf, v || 0, o); return 4 },
+    decode: (buf, o) => [b.readUInt32BE(buf, o), 4]
+  },
+  u48: {
+    length: () => 6,
+    encode: (v, buf, o) => {
+      b.writeUInt16BE(buf, Math.floor((v || 0) / 0x100000000), o)
+      b.writeUInt32BE(buf, (v || 0) % 0x100000000, o + 2)
+      return 6
+    },
+    decode: (buf, o) => [b.readUInt16BE(buf, o) * 0x100000000 + b.readUInt32BE(buf, o + 2), 6]
+  },
+  type: {
+    length: () => 2,
+    encode: (v, buf, o) => { b.writeUInt16BE(buf, types.toType(v), o); return 2 },
+    decode: (buf, o) => [types.toString(b.readUInt16BE(buf, o)), 2]
+  },
+  name: {
+    length: v => name.encodingLength(v),
+    encode: (v, buf, o) => { name.encode(v, buf, o); return name.encode.bytes },
+    decode: (buf, o) => [name.decode(buf, o), name.decode.bytes]
+  },
+  string: {
+    length: v => string.encodingLength(v),
+    encode: (v, buf, o) => { string.encode(v, buf, o); return string.encode.bytes },
+    decode: (buf, o) => [string.decode(buf, o), string.decode.bytes]
+  },
+  ipv4: {
+    length: () => 4,
+    encode: (v, buf, o) => { ip.v4.encode(v, buf, o); return 4 },
+    decode: (buf, o) => [ip.v4.decode(buf, o), 4]
+  },
+  // 64-bit identifier written as four 16-bit hex groups (NID / L64, RFC 6742)
+  id64: {
+    length: () => 8,
+    encode: (v, buf, o) => { b.writeHex(buf, v.replace(/:/g, ''), o, o + 8); return 8 },
+    decode: (buf, o) => [b.toHex(buf, o, o + 8).match(/.{4}/g).join(':'), 8]
+  },
+  // Buffer preceded by its 16-bit length (TKEY / TSIG)
+  bytes16: {
+    length: v => 2 + v.length,
+    encode: (v, buf, o) => { b.writeUInt16BE(buf, v.length, o); buf.set(v, o + 2); return 2 + v.length },
+    decode: (buf, o) => {
+      const len = b.readUInt16BE(buf, o)
+      return [buf.slice(o + 2, o + 2 + len), 2 + len]
+    }
+  },
+  // Buffer filling the rest of RDATA; must be the last field
+  rest: {
+    length: v => v.length,
+    encode: (v, buf, o) => { buf.set(v, o); return v.length },
+    decode: (buf, o, end) => [buf.slice(o, end), end - o]
+  }
+}
+
+function fieldsCodec (typeName, fields) {
+  const enc = codec({
+    encode (data, buf, offset) {
+      if (!buf) buf = new Uint8Array(enc.encodingLength(data))
+      if (!offset) offset = 0
+      const oldOffset = offset
+
+      offset += 2
+      for (const [key, kind] of fields) {
+        const value = data[key]
+        if ((kind === 'rest' || kind === 'bytes16') && !b.isU8Arr(value)) {
+          throw new Error(`${typeName}: ${key} must be a Buffer`)
+        }
+        offset += FIELD_KINDS[kind].encode(value, buf, offset)
+      }
+
+      enc.encode.bytes = offset - oldOffset
+      b.writeUInt16BE(buf, enc.encode.bytes - 2, oldOffset)
+      return buf
+    },
+    decode (buf, offset) {
+      if (!offset) offset = 0
+      const oldOffset = offset
+      const end = rdataEnd(buf, offset)
+
+      offset += 2
+      const data = {}
+      for (const [key, kind] of fields) {
+        const [value, bytes] = FIELD_KINDS[kind].decode(buf, offset, end)
+        offset += bytes
+        if (offset > end) throw new Error(`${typeName}: RDATA too short`)
+        data[key] = value
+      }
+      expectEnd(offset, end, typeName)
+
+      enc.decode.bytes = offset - oldOffset
+      return data
+    },
+    encodingLength (data) {
+      return 2 + fields.reduce((sum, [key, kind]) => sum + FIELD_KINDS[kind].length(data[key]), 0)
+    }
+  })
+  return enc
+}
+
+const rafsdb = fieldsCodec('AFSDB', [['subtype', 'u16'], ['hostname', 'name']]) // RFC 1183
+const rrt = fieldsCodec('RT', [['preference', 'u16'], ['host', 'name']]) // RFC 1183
+const rpx = fieldsCodec('PX', [['preference', 'u16'], ['map822', 'name'], ['mapx400', 'name']]) // RFC 2163
+const rminfo = fieldsCodec('MINFO', [['rmailbx', 'name'], ['emailbx', 'name']]) // RFC 1035
+const rcert = fieldsCodec('CERT', [['certType', 'u16'], ['keyTag', 'u16'], ['algorithm', 'u8'], ['certificate', 'rest']]) // RFC 4398
+const rdhcid = fieldsCodec('DHCID', [['data', 'rest']]) // RFC 4701, opaque
+const rnid = fieldsCodec('NID', [['preference', 'u16'], ['nodeId', 'id64']]) // RFC 6742
+const rl32 = fieldsCodec('L32', [['preference', 'u16'], ['locator', 'ipv4']])
+const rl64 = fieldsCodec('L64', [['preference', 'u16'], ['locator', 'id64']])
+const rlp = fieldsCodec('LP', [['preference', 'u16'], ['fqdn', 'name']])
+const rdsync = fieldsCodec('DSYNC', [['rrtype', 'type'], ['scheme', 'u8'], ['port', 'u16'], ['target', 'name']]) // RFC 9859
+const rtkey = fieldsCodec('TKEY', [ // RFC 2930
+  ['algorithm', 'name'], ['inception', 'u32'], ['expiration', 'u32'], ['mode', 'u16'], ['error', 'u16'],
+  ['key', 'bytes16'], ['other', 'bytes16']
+])
+const rtsig = fieldsCodec('TSIG', [ // RFC 8945
+  ['algorithm', 'name'], ['timeSigned', 'u48'], ['fudge', 'u16'], ['mac', 'bytes16'],
+  ['originalId', 'u16'], ['error', 'u16'], ['other', 'bytes16']
+])
+
+// EUI48 / EUI64 (RFC 7043): data is the address as hyphen-separated hex, e.g. '00-00-5e-00-53-2a'
+function euiCodec (typeName, size) {
+  const enc = codec({
+    encode (address, buf, offset) {
+      if (!buf) buf = new Uint8Array(enc.encodingLength(address))
+      if (!offset) offset = 0
+      const hex = address.replace(/-/g, '')
+      if (hex.length !== size * 2) throw new Error(`${typeName}: address must have ${size} octets`)
+      b.writeUInt16BE(buf, size, offset)
+      b.writeHex(buf, hex, offset + 2, offset + 2 + size)
+      return buf
+    },
+    decode (buf, offset) {
+      if (!offset) offset = 0
+      expectEnd(offset + 2 + size, rdataEnd(buf, offset), typeName)
+      return b.toHex(buf, offset + 2, offset + 2 + size).match(/../g).join('-')
+    },
+    bytes: size + 2
+  })
+  return enc
+}
+const reui48 = euiCodec('EUI48', 6)
+const reui64 = euiCodec('EUI64', 8)
+
+// APL (RFC 3123): data is a list of
+//   { family: 1, prefix: 24, negation: false, address: '192.0.2.0' }
+// The address is a string for IPv4 (1) and IPv6 (2); other families keep the raw AFDPART as `data`.
+const APL_ADDRESS_LENGTH = { 1: 4, 2: 16 }
+function aplAfdPart (item) {
+  if (!APL_ADDRESS_LENGTH[item.family]) return item.data
+  const full = new Uint8Array(APL_ADDRESS_LENGTH[item.family])
+  if (item.family === 1) ip.v4.encode(item.address, full, 0)
+  else ip.v6.encode(item.address, full, 0)
+  let len = full.length
+  while (len > 0 && full[len - 1] === 0) len-- // trailing zero octets are omitted
+  return full.slice(0, len)
+}
+
+const rapl = codec({
+  encode (items, buf, offset) {
+    if (!buf) buf = new Uint8Array(rapl.encodingLength(items))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    for (const item of items) {
+      const afd = aplAfdPart(item)
+      b.writeUInt16BE(buf, item.family, offset)
+      buf[offset + 2] = item.prefix
+      buf[offset + 3] = (item.negation ? 0x80 : 0) | afd.length
+      buf.set(afd, offset + 4)
+      offset += 4 + afd.length
+    }
+
+    rapl.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rapl.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+
+    offset += 2
+    const items = []
+    while (offset < end) {
+      if (offset + 4 > end) throw new Error('APL: truncated item')
+      const item = {
+        family: b.readUInt16BE(buf, offset),
+        prefix: buf[offset + 2],
+        negation: (buf[offset + 3] & 0x80) !== 0
+      }
+      const afdLength = buf[offset + 3] & 0x7f
+      offset += 4
+      if (offset + afdLength > end) throw new Error('APL: AFDPART overflows RDATA')
+      const addressLength = APL_ADDRESS_LENGTH[item.family]
+      if (addressLength) {
+        if (afdLength > addressLength) throw new Error('APL: AFDPART too long')
+        const full = new Uint8Array(addressLength)
+        full.set(buf.subarray(offset, offset + afdLength))
+        item.address = item.family === 1 ? ip.v4.decode(full, 0) : ip.v6.decode(full, 0)
+      } else {
+        item.data = buf.slice(offset, offset + afdLength)
+      }
+      offset += afdLength
+      items.push(item)
+    }
+
+    rapl.decode.bytes = offset - oldOffset
+    return items
+  },
+  encodingLength (items) {
+    return 2 + items.reduce((sum, item) => sum + 4 + aplAfdPart(item).length, 0)
+  }
+})
+
+// Gateway / relay shared by IPSECKEY (RFC 4025) and AMTRELAY (RFC 8777):
+//   type 0: none (null), 1: IPv4 string, 2: IPv6 string, 3: domain name
+const gateway = {
+  length (type, value) {
+    switch (type) {
+      case 0: return 0
+      case 1: return 4
+      case 2: return 16
+      case 3: return name.encodingLength(value)
+    }
+    throw new Error(`Unknown gateway type ${type}`)
+  },
+  encode (type, value, buf, offset) {
+    switch (type) {
+      case 1: ip.v4.encode(value, buf, offset); break
+      case 2: ip.v6.encode(value, buf, offset); break
+      case 3: name.encode(value, buf, offset); break
+    }
+    return gateway.length(type, value)
+  },
+  decode (type, buf, offset) {
+    switch (type) {
+      case 0: return [null, 0]
+      case 1: return [ip.v4.decode(buf, offset), 4]
+      case 2: return [ip.v6.decode(buf, offset), 16]
+      case 3: return [name.decode(buf, offset), name.decode.bytes]
+    }
+    throw new Error(`Unknown gateway type ${type}`)
+  }
+}
+
+// IPSECKEY (RFC 4025)
+const ripseckey = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(ripseckey.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    const publicKey = data.publicKey || new Uint8Array(0)
+    offset += 2
+    buf[offset++] = data.precedence
+    buf[offset++] = data.gatewayType
+    buf[offset++] = data.algorithm
+    offset += gateway.encode(data.gatewayType, data.gateway, buf, offset)
+    buf.set(publicKey, offset)
+    offset += publicKey.length
+
+    ripseckey.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, ripseckey.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 5) throw new Error('IPSECKEY: RDATA too short')
+
+    offset += 2
+    const data = {
+      precedence: buf[offset],
+      gatewayType: buf[offset + 1],
+      algorithm: buf[offset + 2]
+    }
+    offset += 3
+    const [gw, gwBytes] = gateway.decode(data.gatewayType, buf, offset)
+    offset += gwBytes
+    if (offset > end) throw new Error('IPSECKEY: gateway overflows RDATA')
+    data.gateway = gw
+    data.publicKey = buf.slice(offset, end)
+
+    ripseckey.decode.bytes = end - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 5 + gateway.length(data.gatewayType, data.gateway) + (data.publicKey ? data.publicKey.length : 0)
+  }
+})
+
+// AMTRELAY (RFC 8777)
+const ramtrelay = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(ramtrelay.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    buf[offset++] = data.precedence
+    buf[offset++] = (data.discoveryOptional ? 0x80 : 0) | data.relayType
+    offset += gateway.encode(data.relayType, data.relay, buf, offset)
+
+    ramtrelay.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, ramtrelay.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 4) throw new Error('AMTRELAY: RDATA too short')
+
+    offset += 2
+    const data = {
+      precedence: buf[offset],
+      discoveryOptional: (buf[offset + 1] & 0x80) !== 0,
+      relayType: buf[offset + 1] & 0x7f
+    }
+    offset += 2
+    const [relay, relayBytes] = gateway.decode(data.relayType, buf, offset)
+    data.relay = relay
+    offset += relayBytes
+    expectEnd(offset, end, 'AMTRELAY')
+
+    ramtrelay.decode.bytes = offset - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 4 + gateway.length(data.relayType, data.relay)
+  }
+})
+
+// HIP (RFC 8005)
+const rhip = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(rhip.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    buf[offset++] = data.hit.length
+    buf[offset++] = data.algorithm
+    b.writeUInt16BE(buf, data.publicKey.length, offset)
+    offset += 2
+    buf.set(data.hit, offset)
+    offset += data.hit.length
+    buf.set(data.publicKey, offset)
+    offset += data.publicKey.length
+    for (const server of data.rendezvousServers || []) {
+      name.encode(server, buf, offset)
+      offset += name.encode.bytes
+    }
+
+    rhip.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rhip.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 6) throw new Error('HIP: RDATA too short')
+
+    offset += 2
+    const hitLength = buf[offset]
+    const data = { algorithm: buf[offset + 1] }
+    const pkLength = b.readUInt16BE(buf, offset + 2)
+    offset += 4
+    if (offset + hitLength + pkLength > end) throw new Error('HIP: HIT / public key overflow RDATA')
+    data.hit = buf.slice(offset, offset + hitLength)
+    offset += hitLength
+    data.publicKey = buf.slice(offset, offset + pkLength)
+    offset += pkLength
+    data.rendezvousServers = []
+    while (offset < end) {
+      data.rendezvousServers.push(name.decode(buf, offset))
+      offset += name.decode.bytes
+    }
+    expectEnd(offset, end, 'HIP')
+
+    rhip.decode.bytes = offset - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 6 + data.hit.length + data.publicKey.length +
+      (data.rendezvousServers || []).reduce((sum, server) => sum + name.encodingLength(server), 0)
+  }
+})
+
 function renc (type) {
   switch (type.toUpperCase()) {
     case 'A': return ra
@@ -1793,6 +2200,32 @@ function renc (type) {
     case 'LOC': return rloc
     case 'SVCB': return rsvcb
     case 'HTTPS': return rsvcb
+    case 'MD': return rptr
+    case 'MF': return rptr
+    case 'MB': return rptr
+    case 'MG': return rptr
+    case 'MR': return rptr
+    case 'NSAP-PTR': return rptr
+    case 'MINFO': return rminfo
+    case 'AFSDB': return rafsdb
+    case 'RT': return rrt
+    case 'KX': return rmx
+    case 'PX': return rpx
+    case 'CERT': return rcert
+    case 'APL': return rapl
+    case 'DHCID': return rdhcid
+    case 'IPSECKEY': return ripseckey
+    case 'HIP': return rhip
+    case 'EUI48': return reui48
+    case 'EUI64': return reui64
+    case 'NID': return rnid
+    case 'L32': return rl32
+    case 'L64': return rl64
+    case 'LP': return rlp
+    case 'AMTRELAY': return ramtrelay
+    case 'DSYNC': return rdsync
+    case 'TKEY': return rtkey
+    case 'TSIG': return rtsig
   }
   return runknown
 }
@@ -1965,6 +2398,26 @@ export {
   rloc as loc,
   rsvcb as svcb,
   rsvcb as https,
+  rminfo as minfo,
+  rafsdb as afsdb,
+  rrt as rt,
+  rmx as kx,
+  rpx as px,
+  rcert as cert,
+  rapl as apl,
+  rdhcid as dhcid,
+  ripseckey as ipseckey,
+  rhip as hip,
+  reui48 as eui48,
+  reui64 as eui64,
+  rnid as nid,
+  rl32 as l32,
+  rl64 as l64,
+  rlp as lp,
+  ramtrelay as amtrelay,
+  rdsync as dsync,
+  rtkey as tkey,
+  rtsig as tsig,
   renc as enc
 }
 

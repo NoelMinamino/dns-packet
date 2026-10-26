@@ -382,6 +382,121 @@ The options `PADDING`, `CLIENT_SUBNET`, `TCP_KEEPALIVE` and `KEY_TAG` support en
 
 When encoding, scalar values are converted to an array and strings are converted to UTF-8 encoded Buffers. When decoding, the return value will always be an array of Buffer.
 
+#### `AFSDB` / `RT` / `KX` / `PX` / `LP`
+
+``` js
+{ subtype: 1, hostname: 'afsdb.example.com' } // AFSDB
+{ preference: 10, host: 'relay.example.com' } // RT
+{ preference: 10, exchange: 'kx.example.com' } // KX (same as MX)
+{ preference: 10, map822: 'map822.example.com', mapx400: 'mapx400.example.com' } // PX
+{ preference: 10, fqdn: 'l64-subnet.example.com' } // LP
+```
+
+#### `MD` / `MF` / `MB` / `MG` / `MR` / `NSAP-PTR` / `MINFO`
+
+`MD`, `MF`, `MB`, `MG`, `MR` and `NSAP-PTR` hold a domain name string like `PTR`.
+
+``` js
+{ rmailbx: 'admin.example.com', emailbx: 'errors.example.com' } // MINFO
+```
+
+#### `AMTRELAY`
+
+``` js
+{
+  precedence: 10,
+  discoveryOptional: true,
+  relayType: 1, // 0: none, 1: IPv4, 2: IPv6, 3: domain name
+  relay: '203.0.113.15' // null when relayType is 0
+}
+```
+
+#### `APL`
+
+``` js
+[
+  { family: 1, prefix: 21, negation: false, address: '192.168.32.0' },
+  { family: 2, prefix: 32, negation: true, address: '2001:db8::' },
+  { family: 3, prefix: 8, negation: false, data: Buffer } // other families keep the raw AFDPART
+]
+```
+
+#### `CERT`
+
+``` js
+{
+  certType: 1,
+  keyTag: 12345,
+  algorithm: 8,
+  certificate: Buffer
+}
+```
+
+#### `DHCID`
+
+``` js
+{
+  data: Buffer // the whole RDATA, opaque (RFC 4701)
+}
+```
+
+#### `DSYNC`
+
+``` js
+{
+  rrtype: 'CDS',
+  scheme: 1,
+  port: 5359,
+  target: 'dsync.example.net'
+}
+```
+
+#### `EUI48` / `EUI64`
+
+``` js
+{
+  data: '00-00-5e-00-53-2a' // EUI64: '00-00-5e-ef-10-00-00-2a'
+}
+```
+
+#### `HIP`
+
+``` js
+{
+  algorithm: 2,
+  hit: Buffer,
+  publicKey: Buffer,
+  rendezvousServers: ['rvs.example.com']
+}
+```
+
+#### `IPSECKEY`
+
+``` js
+{
+  precedence: 10,
+  gatewayType: 3, // 0: none, 1: IPv4, 2: IPv6, 3: domain name
+  algorithm: 2,
+  gateway: 'gw.example.com', // null when gatewayType is 0
+  publicKey: Buffer
+}
+```
+
+#### `NID` / `L32` / `L64`
+
+``` js
+{ preference: 10, nodeId: '0014:4fff:ff20:8b37' } // NID
+{ preference: 10, locator: '10.1.2.0' } // L32
+{ preference: 10, locator: '2001:0db8:1414:1414' } // L64
+```
+
+#### `TKEY` / `TSIG`
+
+``` js
+{ algorithm: 'gss-tsig', inception: 1761436800, expiration: 1761523200, mode: 3, error: 0, key: Buffer, other: Buffer } // TKEY
+{ algorithm: 'hmac-sha256', timeSigned: 1761436800, fudge: 300, mac: Buffer, originalId: 4660, error: 0, other: Buffer } // TSIG
+```
+
 #### `CSYNC`
 
 ``` js

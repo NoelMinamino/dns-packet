@@ -953,6 +953,157 @@ tape('new record types round trip through packet', function (t) {
   t.end()
 })
 
+function wireHex (rpacket, val) {
+  const buf = rpacket.encode(val)
+  return toHex(buf, 0, buf.length)
+}
+
+tape('name based records: minfo / afsdb / rt / kx / px / lp', function (t) {
+  testEncoder(t, packet.minfo, { rmailbx: 'admin.example.com', emailbx: 'errors.example.com' })
+  testEncoder(t, packet.afsdb, { subtype: 1, hostname: 'afsdb.example.com' })
+  testEncoder(t, packet.rt, { preference: 10, host: 'relay.example.com' })
+  testEncoder(t, packet.kx, { preference: 10, exchange: 'kx.example.com' })
+  testEncoder(t, packet.px, { preference: 10, map822: 'map822.example.com', mapx400: 'mapx400.example.com' })
+  testEncoder(t, packet.lp, { preference: 10, fqdn: 'l64-subnet.example.com' })
+  t.end()
+})
+
+tape('cert / dhcid', function (t) {
+  testEncoder(t, packet.cert, { certType: 1, keyTag: 12345, algorithm: 8, certificate: Buffer.from('0123456789', 'hex') })
+  testEncoder(t, packet.dhcid, { data: Buffer.from('000101a0b1c2d3', 'hex') })
+  t.end()
+})
+
+tape('apl', function (t) {
+  // RFC 3123 section 4: 1:192.168.32.0/21 !1:192.168.38.0/28
+  const items = [
+    { family: 1, prefix: 21, negation: false, address: '192.168.32.0' },
+    { family: 1, prefix: 28, negation: true, address: '192.168.38.0' }
+  ]
+  t.same(wireHex(packet.apl, items), '000e' + '00011503c0a820' + '00011c83c0a826')
+  t.same(packet.apl.decode(packet.apl.encode(items)), items)
+  testEncoder(t, packet.apl, [
+    { family: 2, prefix: 32, negation: false, address: '2001:db8::' },
+    { family: 1, prefix: 0, negation: false, address: '0.0.0.0' },
+    { family: 3, prefix: 8, negation: false, data: Buffer.from([0xab]) }
+  ])
+  testEncoder(t, packet.apl, [])
+  t.end()
+})
+
+tape('ipseckey', function (t) {
+  const publicKey = Buffer.from('0102030405', 'hex')
+  testEncoder(t, packet.ipseckey, { precedence: 10, gatewayType: 0, algorithm: 2, gateway: null, publicKey })
+  testEncoder(t, packet.ipseckey, { precedence: 10, gatewayType: 1, algorithm: 2, gateway: '192.0.2.38', publicKey })
+  testEncoder(t, packet.ipseckey, { precedence: 10, gatewayType: 2, algorithm: 2, gateway: '2001:db8::1', publicKey })
+  testEncoder(t, packet.ipseckey, { precedence: 10, gatewayType: 3, algorithm: 2, gateway: 'gw.example.com', publicKey })
+  testEncoder(t, packet.ipseckey, { precedence: 10, gatewayType: 1, algorithm: 0, gateway: '192.0.2.38', publicKey: Buffer.alloc(0) })
+  t.end()
+})
+
+tape('hip', function (t) {
+  const val = {
+    algorithm: 2,
+    hit: Buffer.from('200100107b1a74df365639cc39f1d578', 'hex'),
+    publicKey: Buffer.from('0102030405060708', 'hex'),
+    rendezvousServers: ['rvs1.example.com', 'rvs2.example.com']
+  }
+  testEncoder(t, packet.hip, val)
+  t.same(packet.hip.decode(packet.hip.encode(val)).rendezvousServers, val.rendezvousServers)
+  testEncoder(t, packet.hip, { ...val, rendezvousServers: [] })
+  t.end()
+})
+
+tape('eui48 / eui64', function (t) {
+  // RFC 7043 section 3.2 / 4.2
+  t.same(wireHex(packet.eui48, '00-00-5e-00-53-2a'), '000600005e00532a')
+  t.same(wireHex(packet.eui64, '00-00-5e-ef-10-00-00-2a'), '000800005eef1000002a')
+  testEncoder(t, packet.eui48, '00-00-5e-00-53-2a')
+  testEncoder(t, packet.eui64, '00-00-5e-ef-10-00-00-2a')
+  t.throws(() => packet.eui48.encode('00-00-5e'), /6 octets/)
+  t.end()
+})
+
+tape('nid / l32 / l64', function (t) {
+  // RFC 6742 section 2
+  t.same(wireHex(packet.nid, { preference: 10, nodeId: '0014:4fff:ff20:8b37' }), '000a' + '000a00144fffff208b37')
+  testEncoder(t, packet.nid, { preference: 10, nodeId: '0014:4fff:ff20:8b37' })
+  testEncoder(t, packet.l32, { preference: 10, locator: '10.1.2.0' })
+  testEncoder(t, packet.l64, { preference: 10, locator: '2001:0db8:1414:1414' })
+  t.end()
+})
+
+tape('amtrelay', function (t) {
+  testEncoder(t, packet.amtrelay, { precedence: 0, discoveryOptional: false, relayType: 0, relay: null })
+  testEncoder(t, packet.amtrelay, { precedence: 10, discoveryOptional: true, relayType: 1, relay: '203.0.113.15' })
+  testEncoder(t, packet.amtrelay, { precedence: 10, discoveryOptional: false, relayType: 2, relay: '2001:db8::15' })
+  testEncoder(t, packet.amtrelay, { precedence: 128, discoveryOptional: false, relayType: 3, relay: 'amtrelays.example.com' })
+  t.same(wireHex(packet.amtrelay, { precedence: 10, discoveryOptional: true, relayType: 1, relay: '203.0.113.15' }), '00060a81cb00710f')
+  t.end()
+})
+
+tape('dsync', function (t) {
+  testEncoder(t, packet.dsync, { rrtype: 'CDS', scheme: 1, port: 5359, target: 'dsync.example.net' })
+  t.same(packet.dsync.decode(packet.dsync.encode({ rrtype: 'CSYNC', scheme: 1, port: 53, target: '.' })).rrtype, 'CSYNC')
+  t.end()
+})
+
+tape('tkey / tsig', function (t) {
+  testEncoder(t, packet.tkey, {
+    algorithm: 'gss-tsig',
+    inception: 1761436800,
+    expiration: 1761523200,
+    mode: 3,
+    error: 0,
+    key: Buffer.from('00112233', 'hex'),
+    other: Buffer.alloc(0)
+  })
+  const tsig = {
+    algorithm: 'hmac-sha256',
+    timeSigned: 0x123456789a, // needs more than 32 bits
+    fudge: 300,
+    mac: Buffer.alloc(32, 7),
+    originalId: 0x1234,
+    error: 18,
+    other: Buffer.from('000000000001', 'hex')
+  }
+  testEncoder(t, packet.tsig, tsig)
+  t.same(packet.tsig.decode(packet.tsig.encode(tsig)).timeSigned, 0x123456789a)
+  t.end()
+})
+
+tape('medium priority types round trip through packet', function (t) {
+  const answers = [
+    { type: 'AFSDB', data: { subtype: 1, hostname: 'afsdb.example.com' } },
+    { type: 'APL', data: [{ family: 1, prefix: 24, negation: false, address: '192.0.2.0' }] },
+    { type: 'IPSECKEY', data: { precedence: 10, gatewayType: 3, algorithm: 2, gateway: 'gw.example.com', publicKey: Buffer.alloc(4, 1) } },
+    { type: 'EUI48', data: '00-00-5e-00-53-2a' },
+    { type: 'NSAP-PTR', data: 'nsap.example.com' },
+    { type: 'MB', data: 'mb.example.com' },
+    { type: 'TSIG', data: { algorithm: 'hmac-sha256', timeSigned: 1761436800, fudge: 300, mac: Buffer.alloc(32), originalId: 1, error: 0, other: Buffer.alloc(0) } }
+  ].map(a => ({ name: 'example.com', ttl: 300, class: 'IN', flush: false, ...a }))
+  const decoded = packet.decode(packet.encode({ type: 'response', answers }))
+  t.same(decoded.answers.map(a => a.type), answers.map(a => a.type))
+  t.same(decoded.answers.map(a => a.dataError), answers.map(() => undefined))
+  t.ok(compare(t, answers, decoded.answers), 'decoded answers match')
+  t.end()
+})
+
+tape('malformed medium priority rdata is kept as raw bytes', function (t) {
+  const buf = Buffer.from(packet.encode({
+    type: 'response',
+    answers: [{ type: 'EUI48', name: 'x', data: '00-00-5e-00-53-2a' }]
+  }))
+  // Claim one more RDATA byte than EUI48 has, and append it
+  const rdlength = 12 + 3 + 8
+  buf.writeUInt16BE(7, rdlength)
+  const decoded = packet.decode(Buffer.concat([buf, Buffer.from([0xff])]))
+  t.ok(decoded.answers[0].data instanceof Uint8Array)
+  t.same(decoded.answers[0].data.length, 7)
+  t.match(decoded.answers[0].dataError, /length mismatch/)
+  t.end()
+})
+
 function testEncoder (t, rpacket, val) {
   const buf = rpacket.encode(val)
   const val2 = rpacket.decode(buf)

@@ -83,3 +83,15 @@ const tlsaAnswer: Answer = {
 };
 dnsPacket.svcb.decode(new Uint8Array(0)); // $ExpectType SvcbData
 dnsPacket.naptr.decode(new Uint8Array(0)); // $ExpectType NaptrData
+const aplAnswer: Answer = {
+  type: 'APL',
+  name: 'example.com',
+  data: [{ family: 1, prefix: 24, negation: false, address: '192.0.2.0' }]
+};
+const ipseckeyAnswer: Answer = {
+  type: 'IPSECKEY',
+  name: 'example.com',
+  data: { precedence: 10, gatewayType: 0, algorithm: 2, gateway: null, publicKey: new Uint8Array(0) }
+};
+dnsPacket.tsig.decode(new Uint8Array(0)); // $ExpectType TsigData
+dnsPacket.eui48.decode(new Uint8Array(0)); // $ExpectType string

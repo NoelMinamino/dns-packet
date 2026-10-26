@@ -1,3 +1,8 @@
+# Version 6.3.0-nm.0 - 2026-10-26 (@noelminamino/dns-packet)
+
+- Feature: Decode/encode CERT, APL, DHCID, IPSECKEY, HIP, EUI48, EUI64, AFSDB, RT, KX, PX, MINFO,
+    MD/MF/MB/MG/MR/NSAP-PTR, NID, L32, L64, LP, AMTRELAY, DSYNC, TKEY and TSIG.
+
 # Version 6.2.0-nm.0 - 2026-10-26 (@noelminamino/dns-packet)
 
 - Feature: All IANA-registered RR type names in types.mjs; toType() accepts RFC 3597 TYPE<number>.
