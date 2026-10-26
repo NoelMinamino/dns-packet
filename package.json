@@ -52,11 +52,11 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "clean": "rm -rf coverage",
-    "lint": "standard && dtslint types --localTs node_modules/typescript/lib",
+    "lint": "eslint . && tsc -p types",
     "test": "npm run lint && npm run unit",
     "unit": "tape test.mjs",
     "coverage": "c8 -r html npm test",
@@ -67,12 +67,12 @@
     "utf8-codec": "^1.0.0"
   },
   "devDependencies": {
-    "@definitelytyped/dtslint": "^0.0.119",
     "@leichtgewicht/esm2umd": "^0.4.0",
-    "c8": "^7.12.0",
-    "standard": "^17.0.0",
+    "c8": "^12.0.0",
+    "eslint": "^10.13.0",
+    "neostandard": "^0.14.1",
     "tape": "^5.6.1",
-    "typescript": "^4.9.3"
+    "typescript": "^5.9.3"
   },
   "keywords": [
     "dns",
@@ -84,5 +84,10 @@
   ],
   "contributors": [
     "Noel Minamino (https://github.com/NoelMinamino)"
-  ]
+  ],
+  "overrides": {
+    "tape": {
+      "glob": "^13.0.6"
+    }
+  }
 }

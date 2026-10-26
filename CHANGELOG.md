@@ -1,3 +1,10 @@
+# Unreleased
+
+- Requires Node.js 22 or later (20 is end-of-life); CI tests Node.js 22 and 24.
+- Dev: replace standard (ESLint 8) with neostandard (ESLint 10), and dtslint with tsc and exact type
+    assertions in types/test.ts; update c8 and TypeScript; override tape's glob so npm install shows
+    no deprecation warnings.
+
 # Version 6.5.0-nm.0 - 2026-10-26 (@noelminamino/dns-packet)
 
 - Feature: presentation.mjs with rdataToString() / rrToString() (also exported from the package root),

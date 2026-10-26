@@ -1,6 +1,9 @@
-/* tslint:disable:no-duplicate-imports */
 import * as dnsPacket from '@noelminamino/dns-packet';
-import { Answer, Codec, UnknownCodec } from '@noelminamino/dns-packet';
+import { A6Data, Answer, Codec, NaptrData, OpaqueData, Packet, SvcbData, TsigData, UnknownCodec } from '@noelminamino/dns-packet';
+
+// Fails to compile unless the value's type is exactly Expected (replaces dtslint's $ExpectType)
+type Exact<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+const expectType = <Expected>() => <Actual>(value: Actual & (Exact<Expected, Actual> extends true ? unknown : 'type mismatch')) => value;
 
 dnsPacket.decode(dnsPacket.encode({
   id: 1,
@@ -66,10 +69,10 @@ const unknownCodecs: UnknownCodec[] = [
   dnsPacket.enc('hello')
 ];
 
-dnsPacket.decode(new Uint8Array([])); // $ExpectType Packet
-dnsPacket.decodeList([], dnsPacket.a, new Uint8Array(0)); // $ExpectType Packet[]
-dnsPacket.streamDecode(new Uint8Array(0)); // $ExpectType Packet | null
-dnsPacket.streamEncode({}); // $ExpectType Uint8Array
+expectType<Packet>()(dnsPacket.decode(new Uint8Array([])));
+expectType<Packet[]>()(dnsPacket.decodeList([], dnsPacket.a, new Uint8Array(0)));
+expectType<Packet | null>()(dnsPacket.streamDecode(new Uint8Array(0)));
+expectType<Uint8Array>()(dnsPacket.streamEncode({}));
 
 const httpsAnswer: Answer = {
   type: 'HTTPS',
@@ -81,8 +84,8 @@ const tlsaAnswer: Answer = {
   name: '_443._tcp.example.com',
   data: { usage: 3, selector: 1, matchingType: 1, certificate: new Uint8Array(32) }
 };
-dnsPacket.svcb.decode(new Uint8Array(0)); // $ExpectType SvcbData
-dnsPacket.naptr.decode(new Uint8Array(0)); // $ExpectType NaptrData
+expectType<SvcbData>()(dnsPacket.svcb.decode(new Uint8Array(0)));
+expectType<NaptrData>()(dnsPacket.naptr.decode(new Uint8Array(0)));
 const aplAnswer: Answer = {
   type: 'APL',
   name: 'example.com',
@@ -93,15 +96,15 @@ const ipseckeyAnswer: Answer = {
   name: 'example.com',
   data: { precedence: 10, gatewayType: 0, algorithm: 2, gateway: null, publicKey: new Uint8Array(0) }
 };
-dnsPacket.tsig.decode(new Uint8Array(0)); // $ExpectType TsigData
-dnsPacket.eui48.decode(new Uint8Array(0)); // $ExpectType string
+expectType<TsigData>()(dnsPacket.tsig.decode(new Uint8Array(0)));
+expectType<string>()(dnsPacket.eui48.decode(new Uint8Array(0)));
 const wksAnswer: Answer = {
   type: 'WKS',
   name: 'example.com',
   data: { address: '192.0.2.1', protocol: 6, ports: [25, 80] }
 };
 const spfAnswer: Answer = { type: 'SPF', name: 'example.com', data: 'v=spf1 -all' };
-dnsPacket.a6.decode(new Uint8Array(0)); // $ExpectType A6Data
-dnsPacket.hhit.decode(new Uint8Array(0)); // $ExpectType OpaqueData
-dnsPacket.rrToString(httpsAnswer); // $ExpectType string
-dnsPacket.rdataToString(tlsaAnswer, { trailingDot: false, utf8: true }); // $ExpectType string
+expectType<A6Data>()(dnsPacket.a6.decode(new Uint8Array(0)));
+expectType<OpaqueData>()(dnsPacket.hhit.decode(new Uint8Array(0)));
+expectType<string>()(dnsPacket.rrToString(httpsAnswer));
+expectType<string>()(dnsPacket.rdataToString(tlsaAnswer, { trailingDot: false, utf8: true }));
