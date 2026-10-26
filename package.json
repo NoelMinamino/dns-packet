@@ -1,6 +1,6 @@
 {
   "name": "@noelminamino/dns-packet",
-  "version": "6.5.0-nm.0",
+  "version": "7.0.0",
   "description": "Encode / decode DNS packets with every IANA RR type and zone file (presentation) output. Fork of @dnsquery/dns-packet for ldns.jp.",
   "author": "Mathias Buus",
   "contributors": [
