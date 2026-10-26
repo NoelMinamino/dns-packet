@@ -2162,6 +2162,266 @@ const rhip = codec({
   }
 })
 
+// KEY (RFC 2535 / RFC 3445) and RKEY: like DNSKEY, but the protocol octet is not fixed to 3
+const rkey = fieldsCodec('KEY', [['flags', 'u16'], ['protocol', 'u8'], ['algorithm', 'u8'], ['key', 'rest']])
+const rtalink = fieldsCodec('TALINK', [['previous', 'name'], ['next', 'name']])
+const rnsap = fieldsCodec('NSAP', [['address', 'rest']]) // RFC 1706, binary NSAP
+const rgpos = fieldsCodec('GPOS', [['longitude', 'string'], ['latitude', 'string'], ['altitude', 'string']]) // RFC 1712
+const rdoa = fieldsCodec('DOA', [ // draft-durand-doa-over-dns
+  ['enterprise', 'u32'], ['type', 'u32'], ['location', 'u8'], ['mediaType', 'string'], ['data', 'rest']
+])
+const rsink = fieldsCodec('SINK', [['coding', 'u8'], ['subcoding', 'u8'], ['data', 'rest']]) // draft-eastlake-kitchen-sink
+// Opaque RDATA kept as { data }: EID / NIMLOC (Nimrod), HHIT / BRID (RFC 9886)
+const reid = fieldsCodec('EID', [['data', 'rest']])
+const rnimloc = fieldsCodec('NIMLOC', [['data', 'rest']])
+const rhhit = fieldsCodec('HHIT', [['data', 'rest']])
+const rbrid = fieldsCodec('BRID', [['data', 'rest']])
+
+// X25 (RFC 1183): data is the PSDN address string
+const rx25 = codec({
+  encode (address, buf, offset) {
+    if (!buf) buf = new Uint8Array(rx25.encodingLength(address))
+    if (!offset) offset = 0
+    string.encode(address, buf, offset + 2)
+    b.writeUInt16BE(buf, string.encode.bytes, offset)
+    rx25.encode.bytes = string.encode.bytes + 2
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const end = rdataEnd(buf, offset)
+    const address = string.decode(buf, offset + 2)
+    expectEnd(offset + 2 + string.decode.bytes, end, 'X25')
+    rx25.decode.bytes = end - offset
+    return address
+  },
+  encodingLength (address) {
+    return 2 + string.encodingLength(address)
+  }
+})
+
+// ISDN (RFC 1183): { address, subaddress } where subaddress is optional
+const risdn = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(risdn.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    string.encode(data.address, buf, offset)
+    offset += string.encode.bytes
+    if (data.subaddress !== undefined) {
+      string.encode(data.subaddress, buf, offset)
+      offset += string.encode.bytes
+    }
+
+    risdn.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, risdn.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+
+    offset += 2
+    const data = { address: string.decode(buf, offset) }
+    offset += string.decode.bytes
+    if (offset < end) {
+      data.subaddress = string.decode(buf, offset)
+      offset += string.decode.bytes
+    }
+    expectEnd(offset, end, 'ISDN')
+
+    risdn.decode.bytes = offset - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 2 + string.encodingLength(data.address) +
+      (data.subaddress !== undefined ? string.encodingLength(data.subaddress) : 0)
+  }
+})
+
+// Bitmap where bit N (most significant bit first) means number N is present:
+// the WKS port bitmap (RFC 1035) and the NXT type bitmap (RFC 2535)
+function bitsToList (buf, start, end) {
+  const list = []
+  for (let o = start; o < end; o++) {
+    for (let bit = 0; bit < 8; bit++) {
+      if (buf[o] & (0x80 >> bit)) list.push((o - start) * 8 + bit)
+    }
+  }
+  return list
+}
+
+function listToBits (list) {
+  const max = list.length ? Math.max(...list) : -1
+  const bits = new Uint8Array((max >> 3) + 1)
+  for (const n of list) bits[n >> 3] |= 0x80 >> (n & 7)
+  return max === -1 ? new Uint8Array(0) : bits
+}
+
+// WKS (RFC 1035): { address: '192.0.2.1', protocol: 6, ports: [25, 80] }
+const rwks = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(rwks.encodingLength(data))
+    if (!offset) offset = 0
+
+    const bits = listToBits(data.ports || [])
+    b.writeUInt16BE(buf, 5 + bits.length, offset)
+    ip.v4.encode(data.address, buf, offset + 2)
+    buf[offset + 6] = data.protocol
+    buf.set(bits, offset + 7)
+
+    rwks.encode.bytes = 7 + bits.length
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 7) throw new Error('WKS: RDATA too short')
+
+    const data = {
+      address: ip.v4.decode(buf, offset + 2),
+      protocol: buf[offset + 6],
+      ports: bitsToList(buf, offset + 7, end)
+    }
+    rwks.decode.bytes = end - offset
+    return data
+  },
+  encodingLength (data) {
+    return 7 + listToBits(data.ports || []).length
+  }
+})
+
+// NXT (RFC 2535): { nextDomain, rrtypes } with the pre-NSEC type bitmap (types 1-127)
+const rnxt = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(rnxt.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    offset += 2
+    name.encode(data.nextDomain, buf, offset)
+    offset += name.encode.bytes
+    const bits = listToBits(data.rrtypes.map(t => types.toType(t)))
+    buf.set(bits, offset)
+    offset += bits.length
+
+    rnxt.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, rnxt.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+
+    offset += 2
+    const data = { nextDomain: name.decode(buf, offset) }
+    offset += name.decode.bytes
+    if (offset > end) throw new Error('NXT: next domain overflows RDATA')
+    data.rrtypes = bitsToList(buf, offset, end).map(t => types.toString(t))
+
+    rnxt.decode.bytes = end - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 2 + name.encodingLength(data.nextDomain) + listToBits(data.rrtypes.map(t => types.toType(t))).length
+  }
+})
+
+// A6 (RFC 2874): { prefixLength, suffix: '::1:2:3:4', prefixName }
+// suffix is an IPv6 address whose first prefixLength bits are zero; prefixName is omitted when prefixLength is 0.
+const ra6 = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(ra6.encodingLength(data))
+    if (!offset) offset = 0
+    const oldOffset = offset
+
+    const skip = data.prefixLength >> 3
+    const address = new Uint8Array(16)
+    ip.v6.encode(data.suffix, address, 0)
+    offset += 2
+    buf[offset++] = data.prefixLength
+    buf.set(address.subarray(skip), offset)
+    offset += 16 - skip
+    if (data.prefixLength > 0) {
+      name.encode(data.prefixName, buf, offset)
+      offset += name.encode.bytes
+    }
+
+    ra6.encode.bytes = offset - oldOffset
+    b.writeUInt16BE(buf, ra6.encode.bytes - 2, oldOffset)
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const oldOffset = offset
+    const end = rdataEnd(buf, offset)
+
+    offset += 2
+    const prefixLength = buf[offset++]
+    if (prefixLength > 128) throw new Error('A6: prefix length over 128')
+    const skip = prefixLength >> 3
+    if (offset + 16 - skip > end) throw new Error('A6: address suffix overflows RDATA')
+    const address = new Uint8Array(16)
+    address.set(buf.subarray(offset, offset + 16 - skip), skip)
+    offset += 16 - skip
+    const data = { prefixLength, suffix: ip.v6.decode(address, 0) }
+    if (prefixLength > 0) {
+      data.prefixName = name.decode(buf, offset)
+      offset += name.decode.bytes
+    }
+    expectEnd(offset, end, 'A6')
+
+    ra6.decode.bytes = offset - oldOffset
+    return data
+  },
+  encodingLength (data) {
+    return 3 + 16 - (data.prefixLength >> 3) + (data.prefixLength > 0 ? name.encodingLength(data.prefixName) : 0)
+  }
+})
+
+// ATMA (ATM Forum af-dans-0152.000): { format, address }
+//   format 0 (AESA): address is 40 hex digits; format 1 (E.164): address is the digit string;
+//   other formats: address is hex
+const ratma = codec({
+  encode (data, buf, offset) {
+    if (!buf) buf = new Uint8Array(ratma.encodingLength(data))
+    if (!offset) offset = 0
+
+    buf[offset + 2] = data.format
+    let len
+    if (data.format === 1) {
+      len = b.write(buf, data.address, offset + 3)
+    } else {
+      len = b.hexLength(data.address)
+      b.writeHex(buf, data.address, offset + 3, offset + 3 + len)
+    }
+    b.writeUInt16BE(buf, len + 1, offset)
+
+    ratma.encode.bytes = len + 3
+    return buf
+  },
+  decode (buf, offset) {
+    if (!offset) offset = 0
+    const end = rdataEnd(buf, offset)
+    if (end - offset < 3) throw new Error('ATMA: RDATA too short')
+
+    const format = buf[offset + 2]
+    const data = {
+      format,
+      address: format === 1 ? toUtf8(buf, offset + 3, end) : b.toHex(buf, offset + 3, end)
+    }
+    ratma.decode.bytes = end - offset
+    return data
+  },
+  encodingLength (data) {
+    return 3 + (data.format === 1 ? b.bytelength(data.address) : b.hexLength(data.address))
+  }
+})
+
 function renc (type) {
   switch (type.toUpperCase()) {
     case 'A': return ra
@@ -2226,6 +2486,29 @@ function renc (type) {
     case 'DSYNC': return rdsync
     case 'TKEY': return rtkey
     case 'TSIG': return rtsig
+    case 'SPF': return rtxt
+    case 'AVC': return rtxt
+    case 'NINFO': return rtxt
+    case 'RESINFO': return rtxt
+    case 'WALLET': return rtxt
+    case 'SIG': return rrrsig
+    case 'KEY': return rkey
+    case 'RKEY': return rkey
+    case 'TALINK': return rtalink
+    case 'WKS': return rwks
+    case 'X25': return rx25
+    case 'ISDN': return risdn
+    case 'NSAP': return rnsap
+    case 'GPOS': return rgpos
+    case 'A6': return ra6
+    case 'NXT': return rnxt
+    case 'ATMA': return ratma
+    case 'DOA': return rdoa
+    case 'SINK': return rsink
+    case 'EID': return reid
+    case 'NIMLOC': return rnimloc
+    case 'HHIT': return rhhit
+    case 'BRID': return rbrid
   }
   return runknown
 }
@@ -2418,6 +2701,24 @@ export {
   rdsync as dsync,
   rtkey as tkey,
   rtsig as tsig,
+  rrrsig as sig,
+  rkey as key,
+  rkey,
+  rtalink as talink,
+  rwks as wks,
+  rx25 as x25,
+  risdn as isdn,
+  rnsap as nsap,
+  rgpos as gpos,
+  ra6 as a6,
+  rnxt as nxt,
+  ratma as atma,
+  rdoa as doa,
+  rsink as sink,
+  reid as eid,
+  rnimloc as nimloc,
+  rhhit as hhit,
+  rbrid as brid,
   renc as enc
 }
 

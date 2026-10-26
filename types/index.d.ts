@@ -69,7 +69,7 @@ export interface BaseAnswer<T, D> {
 /**
  * Record types for which the library will provide a string in the data field.
  */
-export type StringRecordType = "A" | "AAAA" | "CNAME" | "DNAME" | "NS" | "PTR" | "MD" | "MF" | "MB" | "MG" | "MR" | "NSAP-PTR" | "EUI48" | "EUI64";
+export type StringRecordType = "A" | "AAAA" | "CNAME" | "DNAME" | "NS" | "PTR" | "MD" | "MF" | "MB" | "MG" | "MR" | "NSAP-PTR" | "EUI48" | "EUI64" | "X25";
 
 /**
  * Record types for which the library does not attempt to process the data
@@ -77,15 +77,13 @@ export type StringRecordType = "A" | "AAAA" | "CNAME" | "DNAME" | "NS" | "PTR" |
  */
 export type OtherRecordType =
  | "AXFR"
- | "IXFR"
- | "KEY"
- | "SIG";
+ | "IXFR";
 
 export type StringAnswer = BaseAnswer<StringRecordType, string>;
 export type SrvAnswer = BaseAnswer<"SRV", SrvData>;
 export type HInfoAnswer = BaseAnswer<"HINFO", HInfoData>;
 export type SoaAnswer = BaseAnswer<"SOA", SoaData>;
-export type TxtAnswer = BaseAnswer<"TXT", TxtData>;
+export type TxtAnswer = BaseAnswer<"TXT" | "SPF" | "AVC" | "NINFO" | "RESINFO" | "WALLET", TxtData>;
 export type CaaAnswer = BaseAnswer<"CAA", CaaData>;
 export type MxAnswer = BaseAnswer<"MX" | "KX", MxData>;
 export type MInfoAnswer = BaseAnswer<"MINFO", MInfoData>;
@@ -107,7 +105,19 @@ export type TsigAnswer = BaseAnswer<"TSIG", TsigData>;
 export type NullAnswer = BaseAnswer<"NULL", Uint8Array>;
 export type OptAnswer = BaseAnswer<"OPT", OptionData[]>;
 export type DNSKeyAnswer = BaseAnswer<"DNSKEY" | "CDNSKEY", DNSKeyData>;
-export type RRSigAnswer = BaseAnswer<"RRSIG", RRSigData>;
+export type RRSigAnswer = BaseAnswer<"RRSIG" | "SIG", RRSigData>;
+export type KeyAnswer = BaseAnswer<"KEY" | "RKEY", KeyData>;
+export type TalinkAnswer = BaseAnswer<"TALINK", TalinkData>;
+export type WksAnswer = BaseAnswer<"WKS", WksData>;
+export type IsdnAnswer = BaseAnswer<"ISDN", IsdnData>;
+export type NsapAnswer = BaseAnswer<"NSAP", NsapData>;
+export type GposAnswer = BaseAnswer<"GPOS", GposData>;
+export type A6Answer = BaseAnswer<"A6", A6Data>;
+export type NxtAnswer = BaseAnswer<"NXT", NxtData>;
+export type AtmaAnswer = BaseAnswer<"ATMA", AtmaData>;
+export type DoaAnswer = BaseAnswer<"DOA", DoaData>;
+export type SinkAnswer = BaseAnswer<"SINK", SinkData>;
+export type OpaqueAnswer = BaseAnswer<"EID" | "NIMLOC" | "HHIT" | "BRID", OpaqueData>;
 export type RPAnswer = BaseAnswer<"RP", RPData>;
 export type NSecAnswer = BaseAnswer<"NSEC", NSecData>;
 export type NSec3Answer = BaseAnswer<"NSEC3", NSec3Data>;
@@ -148,6 +158,18 @@ export type Answer =
  | DsyncAnswer
  | TkeyAnswer
  | TsigAnswer
+ | KeyAnswer
+ | TalinkAnswer
+ | WksAnswer
+ | IsdnAnswer
+ | NsapAnswer
+ | GposAnswer
+ | A6Answer
+ | NxtAnswer
+ | AtmaAnswer
+ | DoaAnswer
+ | SinkAnswer
+ | OpaqueAnswer
  | NullAnswer
  | OptAnswer
  | DNSKeyAnswer
@@ -327,6 +349,64 @@ export interface TsigData {
   error: number;
   other: Uint8Array;
 }
+/** KEY / RKEY: like DNSKEY, but protocol is not fixed to 3 */
+export interface KeyData {
+  flags: number;
+  protocol: number;
+  algorithm: number;
+  key: Uint8Array;
+}
+export interface TalinkData {
+  previous: string;
+  next: string;
+}
+export interface WksData {
+  address: string;
+  protocol: number;
+  ports: number[];
+}
+export interface IsdnData {
+  address: string;
+  subaddress?: string;
+}
+export interface NsapData {
+  address: Uint8Array;
+}
+export interface GposData {
+  longitude: string;
+  latitude: string;
+  altitude: string;
+}
+/** prefixName is present when prefixLength > 0 */
+export interface A6Data {
+  prefixLength: number;
+  suffix: string;
+  prefixName?: string;
+}
+export interface NxtData {
+  nextDomain: string;
+  rrtypes: RecordType[];
+}
+/** format 1 (E.164): address is the digit string; other formats: hex */
+export interface AtmaData {
+  format: number;
+  address: string;
+}
+export interface DoaData {
+  enterprise: number;
+  type: number;
+  location: number;
+  mediaType: string;
+  data: Uint8Array;
+}
+export interface SinkData {
+  coding: number;
+  subcoding: number;
+  data: Uint8Array;
+}
+export interface OpaqueData {
+  data: Uint8Array;
+}
 export interface NaptrData {
   order: number;
   preference: number;
@@ -462,6 +542,18 @@ export type AmtRelayCodec = Codec<AmtRelayData>;
 export type DsyncCodec = Codec<DsyncData>;
 export type TkeyCodec = Codec<TkeyData>;
 export type TsigCodec = Codec<TsigData>;
+export type KeyCodec = Codec<KeyData>;
+export type TalinkCodec = Codec<TalinkData>;
+export type WksCodec = Codec<WksData>;
+export type IsdnCodec = Codec<IsdnData>;
+export type NsapCodec = Codec<NsapData>;
+export type GposCodec = Codec<GposData>;
+export type A6Codec = Codec<A6Data>;
+export type NxtCodec = Codec<NxtData>;
+export type AtmaCodec = Codec<AtmaData>;
+export type DoaCodec = Codec<DoaData>;
+export type SinkCodec = Codec<SinkData>;
+export type OpaqueCodec = Codec<OpaqueData>;
 export type PacketCodec = Codec<Packet>;
 
 export type SingleQuestionPacket = Omit<Packet, 'questions'> & {
@@ -527,6 +619,24 @@ export const amtrelay: AmtRelayCodec;
 export const dsync: DsyncCodec;
 export const tkey: TkeyCodec;
 export const tsig: TsigCodec;
+export const sig: RRSigCodec;
+export const key: KeyCodec;
+export const rkey: KeyCodec;
+export const talink: TalinkCodec;
+export const wks: WksCodec;
+export const x25: Codec<string>;
+export const isdn: IsdnCodec;
+export const nsap: NsapCodec;
+export const gpos: GposCodec;
+export const a6: A6Codec;
+export const nxt: NxtCodec;
+export const atma: AtmaCodec;
+export const doa: DoaCodec;
+export const sink: SinkCodec;
+export const eid: OpaqueCodec;
+export const nimloc: OpaqueCodec;
+export const hhit: OpaqueCodec;
+export const brid: OpaqueCodec;
 export const packet: PacketCodec;
 export const query: QueryCodec;
 export const response: ResponseCodec;

@@ -382,6 +382,108 @@ The options `PADDING`, `CLIENT_SUBNET`, `TCP_KEEPALIVE` and `KEY_TAG` support en
 
 When encoding, scalar values are converted to an array and strings are converted to UTF-8 encoded Buffers. When decoding, the return value will always be an array of Buffer.
 
+`SPF`, `AVC`, `NINFO`, `RESINFO` and `WALLET` use the same format as `TXT`.
+
+#### `A6`
+
+``` js
+{
+  prefixLength: 64,
+  suffix: '::1:2:3:4', // IPv6 address whose first prefixLength bits are zero
+  prefixName: 'prefix.example.com' // omitted when prefixLength is 0
+}
+```
+
+#### `ATMA`
+
+``` js
+{ format: 0, address: '47000580ffde0000000000000000000000000001' } // AESA, hex
+{ format: 1, address: '15551234567' } // E.164, digits
+```
+
+#### `DOA` / `SINK`
+
+``` js
+{ enterprise: 0, type: 1, location: 2, mediaType: 'image/gif', data: Buffer } // DOA
+{ coding: 1, subcoding: 0, data: Buffer } // SINK
+```
+
+#### `EID` / `NIMLOC` / `HHIT` / `BRID`
+
+Kept opaque.
+
+``` js
+{
+  data: Buffer
+}
+```
+
+#### `GPOS`
+
+``` js
+{
+  longitude: '-32.6882',
+  latitude: '116.8652',
+  altitude: '10.0'
+}
+```
+
+#### `KEY` / `RKEY` / `SIG`
+
+`KEY` and `RKEY` look like `DNSKEY`, but `protocol` may be any value. `SIG` uses the `RRSIG` format.
+
+``` js
+{
+  flags: 256,
+  protocol: 3,
+  algorithm: 8,
+  key: Buffer
+}
+```
+
+#### `NSAP`
+
+``` js
+{
+  address: Buffer
+}
+```
+
+#### `NXT`
+
+``` js
+{
+  nextDomain: 'medium.foo.tld',
+  rrtypes: ['A', 'MX', 'SIG', 'NXT']
+}
+```
+
+#### `TALINK`
+
+``` js
+{
+  previous: 'prev.example.com',
+  next: 'next.example.com'
+}
+```
+
+#### `WKS`
+
+``` js
+{
+  address: '192.0.2.1',
+  protocol: 6,
+  ports: [25, 80]
+}
+```
+
+#### `X25` / `ISDN`
+
+``` js
+'311061700956' // X25
+{ address: '150862028003217', subaddress: '004' } // ISDN, subaddress is optional
+```
+
 #### `AFSDB` / `RT` / `KX` / `PX` / `LP`
 
 ``` js

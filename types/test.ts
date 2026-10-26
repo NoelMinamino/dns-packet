@@ -95,3 +95,11 @@ const ipseckeyAnswer: Answer = {
 };
 dnsPacket.tsig.decode(new Uint8Array(0)); // $ExpectType TsigData
 dnsPacket.eui48.decode(new Uint8Array(0)); // $ExpectType string
+const wksAnswer: Answer = {
+  type: 'WKS',
+  name: 'example.com',
+  data: { address: '192.0.2.1', protocol: 6, ports: [25, 80] }
+};
+const spfAnswer: Answer = { type: 'SPF', name: 'example.com', data: 'v=spf1 -all' };
+dnsPacket.a6.decode(new Uint8Array(0)); // $ExpectType A6Data
+dnsPacket.hhit.decode(new Uint8Array(0)); // $ExpectType OpaqueData

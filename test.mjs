@@ -1104,6 +1104,102 @@ tape('malformed medium priority rdata is kept as raw bytes', function (t) {
   t.end()
 })
 
+tape('txt-like records: spf / avc / ninfo / resinfo / wallet', function (t) {
+  for (const type of ['SPF', 'AVC', 'NINFO', 'RESINFO', 'WALLET']) {
+    t.same(packet.enc(type), packet.txt, `${type} uses the TXT codec`)
+  }
+  t.end()
+})
+
+tape('sig / key / rkey', function (t) {
+  t.same(packet.sig, packet.rrsig)
+  testEncoder(t, packet.key, { flags: 256, protocol: 3, algorithm: 8, key: Buffer.from('0102030405', 'hex') })
+  // KEY / RKEY may use protocols other than 3, unlike DNSKEY
+  testEncoder(t, packet.rkey, { flags: 0, protocol: 1, algorithm: 8, key: Buffer.from('0102', 'hex') })
+  t.end()
+})
+
+tape('talink', function (t) {
+  testEncoder(t, packet.talink, { previous: 'prev.example.com', next: 'next.example.com' })
+  t.end()
+})
+
+tape('wks', function (t) {
+  const val = { address: '192.0.2.1', protocol: 6, ports: [25, 80] }
+  t.same(wireHex(packet.wks, val), '0010' + 'c0000201' + '06' + '0000004000000000000080')
+  t.same(packet.wks.decode(packet.wks.encode(val)), val)
+  testEncoder(t, packet.wks, { address: '192.0.2.1', protocol: 17, ports: [] })
+  t.end()
+})
+
+tape('x25 / isdn', function (t) {
+  testEncoder(t, packet.x25, '311061700956')
+  testEncoder(t, packet.isdn, { address: '150862028003217', subaddress: '004' })
+  testEncoder(t, packet.isdn, { address: '150862028003217' })
+  t.same(packet.isdn.decode(packet.isdn.encode({ address: '1' })), { address: '1' })
+  t.end()
+})
+
+tape('nsap / gpos', function (t) {
+  testEncoder(t, packet.nsap, { address: Buffer.from('47000580005a0000000001e133ffffff00016100', 'hex') })
+  testEncoder(t, packet.gpos, { longitude: '-32.6882', latitude: '116.8652', altitude: '10.0' })
+  t.end()
+})
+
+tape('a6', function (t) {
+  // RFC 2874 examples
+  testEncoder(t, packet.a6, { prefixLength: 0, suffix: '2345:c1:ca11:1:1234:5678:9abc:def0' })
+  const val = { prefixLength: 64, suffix: '::1:2:3:4', prefixName: 'prefix.example.com' }
+  t.same(wireHex(packet.a6, val).slice(0, 2 * 11), '001d' + '40' + '0001000200030004')
+  t.same(packet.a6.decode(packet.a6.encode(val)), val)
+  t.same(packet.a6.decode(packet.a6.encode({ prefixLength: 128, suffix: '::', prefixName: 'p.example' })),
+    { prefixLength: 128, suffix: '::', prefixName: 'p.example' })
+  t.end()
+})
+
+tape('nxt', function (t) {
+  // RFC 2535 section 5.2: big.foo.tld. NXT medium.foo.tld. A MX SIG NXT
+  const val = { nextDomain: 'medium.foo.tld', rrtypes: ['A', 'MX', 'SIG', 'NXT'] }
+  const hex = wireHex(packet.nxt, val)
+  t.same(hex.slice(-8), '40010082')
+  t.same(packet.nxt.decode(packet.nxt.encode(val)), val)
+  t.end()
+})
+
+tape('atma', function (t) {
+  testEncoder(t, packet.atma, { format: 0, address: '47000580ffde0000000000000000000000000001' })
+  testEncoder(t, packet.atma, { format: 1, address: '15551234567' })
+  t.same(wireHex(packet.atma, { format: 1, address: '123' }), '000401313233')
+  t.end()
+})
+
+tape('doa / sink / opaque records', function (t) {
+  testEncoder(t, packet.doa, { enterprise: 0, type: 1, location: 2, mediaType: 'image/gif', data: Buffer.from('47494638', 'hex') })
+  testEncoder(t, packet.sink, { coding: 1, subcoding: 0, data: Buffer.from('0102', 'hex') })
+  for (const codec of [packet.eid, packet.nimloc, packet.hhit, packet.brid]) {
+    testEncoder(t, codec, { data: Buffer.from('0123456789', 'hex') })
+  }
+  t.end()
+})
+
+tape('low priority types round trip through packet', function (t) {
+  const answers = [
+    { type: 'SPF', data: [Buffer.from('v=spf1 -all')] },
+    { type: 'KEY', data: { flags: 256, protocol: 3, algorithm: 8, key: Buffer.alloc(4, 1) } },
+    { type: 'WKS', data: { address: '192.0.2.1', protocol: 6, ports: [25] } },
+    { type: 'ISDN', data: { address: '150862028003217', subaddress: '004' } },
+    { type: 'A6', data: { prefixLength: 64, suffix: '::1:2:3:4', prefixName: 'prefix.example.com' } },
+    { type: 'NXT', data: { nextDomain: 'next.example.com', rrtypes: ['A', 'SIG', 'NXT'] } },
+    { type: 'ATMA', data: { format: 1, address: '15551234567' } },
+    { type: 'HHIT', data: { data: Buffer.alloc(8, 2) } }
+  ].map(a => ({ name: 'example.com', ttl: 300, class: 'IN', flush: false, ...a }))
+  const decoded = packet.decode(packet.encode({ type: 'response', answers }))
+  t.same(decoded.answers.map(a => a.type), answers.map(a => a.type))
+  t.same(decoded.answers.map(a => a.dataError), answers.map(() => undefined))
+  t.ok(compare(t, answers, decoded.answers), 'decoded answers match')
+  t.end()
+})
+
 function testEncoder (t, rpacket, val) {
   const buf = rpacket.encode(val)
   const val2 = rpacket.decode(buf)

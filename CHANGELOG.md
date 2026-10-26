@@ -1,3 +1,9 @@
+# Version 6.4.0-nm.0 - 2026-10-26 (@noelminamino/dns-packet)
+
+- Feature: Decode/encode SIG, KEY, RKEY, TALINK, WKS, X25, ISDN, NSAP, GPOS, A6, NXT, ATMA, DOA and SINK.
+- Feature: SPF, AVC, NINFO, RESINFO and WALLET use the TXT codec.
+- Feature: EID, NIMLOC, HHIT and BRID are returned as { data } (opaque).
+
 # Version 6.3.0-nm.0 - 2026-10-26 (@noelminamino/dns-packet)
 
 - Feature: Decode/encode CERT, APL, DHCID, IPSECKEY, HIP, EUI48, EUI64, AFSDB, RT, KX, PX, MINFO,
