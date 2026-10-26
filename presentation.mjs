@@ -50,17 +50,6 @@ const generic = bytes => `\\# ${bytes.length}${bytes.length ? ' ' + hex(bytes) :
 
 const toBytes = value => typeof value === 'string' ? b.from(value) : value
 
-// Is there a valid UTF-8 sequence of a non-ASCII character at bytes[i]? Returns its length or 0.
-function utf8SequenceLength (bytes, i) {
-  const lead = bytes[i]
-  const len = lead >= 0xf0 && lead <= 0xf4 ? 4 : lead >= 0xe0 ? (lead <= 0xef ? 3 : 0) : lead >= 0xc2 && lead <= 0xdf ? 2 : 0
-  if (!len || i + len > bytes.length) return 0
-  for (let j = 1; j < len; j++) {
-    if ((bytes[i + j] & 0xc0) !== 0x80) return 0
-  }
-  return len
-}
-
 // <character-string> in double quotes; '"' and '\' are escaped, other non-printable bytes become \DDD
 export function quote (value, options = DEFAULTS) {
   const bytes = toBytes(value)
@@ -72,7 +61,7 @@ export function quote (value, options = DEFAULTS) {
     } else if (c >= 0x20 && c < 0x7f) {
       out += String.fromCharCode(c)
     } else {
-      const len = options.utf8 ? utf8SequenceLength(bytes, i) : 0
+      const len = options.utf8 ? b.utf8SequenceLength(bytes, i) : 0
       if (len) {
         out += toUtf8(bytes, i, i + len)
         i += len - 1

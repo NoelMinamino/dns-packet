@@ -1,48 +1,44 @@
 /*
- * Traditional DNS header RCODEs (4-bits) defined by IANA in
- * https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+ * DNS RCODEs defined by IANA in
+ * https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
+ *
+ * The header holds the lower 4 bits; with EDNS the OPT record adds 8 more (RFC 6891), so codes
+ * 16 and up (BADVERS, BADCOOKIE, ...) only appear in a packet's `fullRcode`.
  */
+const RCODES = {
+  0: 'NOERROR',
+  1: 'FORMERR',
+  2: 'SERVFAIL',
+  3: 'NXDOMAIN',
+  4: 'NOTIMP',
+  5: 'REFUSED',
+  6: 'YXDOMAIN',
+  7: 'YXRRSET',
+  8: 'NXRRSET',
+  9: 'NOTAUTH',
+  10: 'NOTZONE',
+  11: 'DSOTYPENI',
+  16: 'BADVERS', // also BADSIG in TSIG records (RFC 8945)
+  17: 'BADKEY',
+  18: 'BADTIME',
+  19: 'BADMODE',
+  20: 'BADNAME',
+  21: 'BADALG',
+  22: 'BADTRUNC',
+  23: 'BADCOOKIE'
+}
+
+const NAMES = { BADSIG: 16 }
+for (const [rcode, name] of Object.entries(RCODES)) NAMES[name] = Number(rcode)
 
 export function toString (rcode) {
-  switch (rcode) {
-    case 0: return 'NOERROR'
-    case 1: return 'FORMERR'
-    case 2: return 'SERVFAIL'
-    case 3: return 'NXDOMAIN'
-    case 4: return 'NOTIMP'
-    case 5: return 'REFUSED'
-    case 6: return 'YXDOMAIN'
-    case 7: return 'YXRRSET'
-    case 8: return 'NXRRSET'
-    case 9: return 'NOTAUTH'
-    case 10: return 'NOTZONE'
-    case 11: return 'RCODE_11'
-    case 12: return 'RCODE_12'
-    case 13: return 'RCODE_13'
-    case 14: return 'RCODE_14'
-    case 15: return 'RCODE_15'
-  }
-  return 'RCODE_' + rcode
+  return RCODES[rcode] || 'RCODE_' + rcode
 }
 
 export function toRcode (code) {
-  switch (code.toUpperCase()) {
-    case 'NOERROR': return 0
-    case 'FORMERR': return 1
-    case 'SERVFAIL': return 2
-    case 'NXDOMAIN': return 3
-    case 'NOTIMP': return 4
-    case 'REFUSED': return 5
-    case 'YXDOMAIN': return 6
-    case 'YXRRSET': return 7
-    case 'NXRRSET': return 8
-    case 'NOTAUTH': return 9
-    case 'NOTZONE': return 10
-    case 'RCODE_11': return 11
-    case 'RCODE_12': return 12
-    case 'RCODE_13': return 13
-    case 'RCODE_14': return 14
-    case 'RCODE_15': return 15
-  }
+  const upper = code.toUpperCase()
+  if (Object.prototype.hasOwnProperty.call(NAMES, upper)) return NAMES[upper]
+  const generic = /^RCODE_(\d+)$/.exec(upper)
+  if (generic) return Number(generic[1])
   return 0
 }

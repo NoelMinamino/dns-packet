@@ -1,10 +1,10 @@
 import { RecordType } from '../types.js';
-import { RecordClass } from '../rcodes.js';
+import { RecordClass, RCode } from '../rcodes.js';
 import { OptionCodes } from '../optioncodes.js';
 import { OPCode } from '../opcodes.js';
 
 export { RecordType } from '../types.js';
-export { RecordClass } from '../rcodes.js';
+export { RecordClass, RCode } from '../rcodes.js';
 export { OptionCodes } from '../optioncodes.js';
 export { OPCode } from '../opcodes.js';
 
@@ -223,7 +223,27 @@ export interface Packet {
   flag_z?: boolean;
   flag_ad?: boolean;
   flag_cd?: boolean;
-  rcode?: RecordClass;
+  /** The 4-bit RCODE from the header */
+  rcode?: RCode;
+  /** Set on decoding: the RCODE including the upper 8 bits from the OPT record (RFC 6891), e.g. 'BADCOOKIE' */
+  fullRcode?: RCode;
+  /** Set by decode(buf, offset, { partial: true }) when a record could not be decoded */
+  error?: PartialDecodeError;
+}
+
+export interface PartialDecodeError {
+  /** Section of the record that failed; it and the following sections are cut there */
+  section: 'questions' | 'answers' | 'authorities' | 'additionals';
+  /** Index of the record that failed within its section */
+  index: number;
+  message: string;
+  /** Record counts announced in the header */
+  counts: { questions: number; answers: number; authorities: number; additionals: number };
+}
+
+export interface DecodeOptions {
+  /** Return the records decoded so far, with `error`, instead of throwing (the header must be complete) */
+  partial?: boolean;
 }
 
 export const DNSSEC_OK: 32768;
@@ -235,7 +255,7 @@ export const AUTHENTIC_DATA: 32;
 export const CHECKING_DISABLED: 16;
 
 export interface DNSKeyData {
-  key: string;
+  key: Uint8Array;
   flags: number;
   algorithm: number;
 }
@@ -498,7 +518,11 @@ export type DNSKeyCodec = Codec<DNSKeyData> & {
   PROTOCOL_DNSSEC: 3
   ZONE_KEY: 0x80
   SECURE_ENTRYPOINT: 0x8000
+  keyTag(key: DNSKeyData | KeyData): number
 };
+
+/** Key tag of a DNSKEY / CDNSKEY / KEY / RKEY (RFC 4034, appendix B), as used by DS and RRSIG */
+export function keyTag(key: DNSKeyData | KeyData): number;
 export type DSCodec = Codec<DigestData>;
 export type SSHFPCodec = Codec<SSHFP> & {
   getFingerprintLengthForHashType(hashType: SSHFPHash): SSHFPFingerPrintLength;
@@ -785,7 +809,7 @@ export type TypeCodec <Type> =
 export function enc <Type>(type: Type): TypeCodec<Type>;
 
 export function encode(packet: Packet, buf?: Uint8Array, offset?: number): Uint8Array;
-export function decode(buf: Uint8Array, offset?: number): Packet;
+export function decode(buf: Uint8Array, offset?: number, options?: DecodeOptions): Packet;
 export function encodingLength(packet: Packet): number;
 export function decodeList <T= any>(list: T[], codec: Codec<T>, buf: Uint8Array, offset?: number): Packet[];
 export function encodeList <T= any>(list: T[], codec: Codec<T>, buf?: Uint8Array, offset?: number): number;

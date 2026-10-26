@@ -114,3 +114,6 @@ const ednsOptions: OptionData[] = [
   { code: 'MQTYPE_QUERY', qtypes: ['AAAA', 'HTTPS'] },
   { code: 'ZONEVERSION', labelCount: 2, versionType: 0, serial: 1 }
 ];
+const partialPacket = dnsPacket.decode(new Uint8Array(0), 0, { partial: true });
+expectType<'questions' | 'answers' | 'authorities' | 'additionals' | undefined>()(partialPacket.error?.section);
+expectType<number>()(dnsPacket.keyTag({ flags: 257, algorithm: 8, key: new Uint8Array(0) }));

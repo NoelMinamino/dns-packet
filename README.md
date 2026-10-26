@@ -62,9 +62,33 @@ While DNS has traditionally been used over a datagram transport, it is increasin
 
 Encodes a DNS packet into a buffer containing a UDP payload.
 
-#### `var packet = packets.decode(buf, [offset])`
+#### `var packet = packets.decode(buf, [offset], [options])`
 
 Decode a DNS packet from a buffer containing a UDP payload.
+
+The decoded packet has `rcode` (the 4-bit header value) and `fullRcode`, which includes the upper 8 bits
+EDNS keeps in the OPT record (RFC 6891), e.g. `'BADCOOKIE'`; without OPT they are the same.
+
+`decode()` throws when the packet cannot be decoded. With `{ partial: true }` it instead returns the records
+decoded up to the problem: that section and the following ones are cut there, and `packet.error` says where
+and why. The header must still be complete.
+
+``` js
+const packet = packets.decode(buf, 0, { partial: true })
+if (packet.error) {
+  // { section: 'answers', index: 40, message: 'Cannot decode name (buffer overflow)',
+  //   counts: { questions: 1, answers: 136, authorities: 0, additionals: 1 } }
+}
+```
+
+Domain names are strings in master-file form (RFC 1035 section 5.1): inside a label, `.` and `\` are
+written `\.` and `\\`, and other bytes that are not printable `\DDD`, so that names such as
+`\000.example.com` (NSEC "black lies") keep their labels. Valid UTF-8 is kept as it is. Encoding reads the
+same escapes.
+
+#### `var tag = packets.keyTag(dnskey)`
+
+Key tag (RFC 4034, appendix B) of DNSKEY / CDNSKEY / KEY / RKEY data, as found in DS and RRSIG records.
 
 #### `var buf = packets.streamEncode(packet, [buf], [offset])`
 

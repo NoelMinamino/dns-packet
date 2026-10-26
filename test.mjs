@@ -251,13 +251,13 @@ tape('response', function (t) {
 })
 
 tape('rcode', function (t) {
-  const errors = ['NOERROR', 'FORMERR', 'SERVFAIL', 'NXDOMAIN', 'NOTIMP', 'REFUSED', 'YXDOMAIN', 'YXRRSET', 'NXRRSET', 'NOTAUTH', 'NOTZONE', 'RCODE_11', 'RCODE_12', 'RCODE_13', 'RCODE_14', 'RCODE_15']
+  const errors = ['NOERROR', 'FORMERR', 'SERVFAIL', 'NXDOMAIN', 'NOTIMP', 'REFUSED', 'YXDOMAIN', 'YXRRSET', 'NXRRSET', 'NOTAUTH', 'NOTZONE', 'DSOTYPENI', 'RCODE_12', 'RCODE_13', 'RCODE_14', 'RCODE_15']
   for (const i in errors) {
     const code = rcodes.toRcode(errors[i])
     t.ok(errors[i] === rcodes.toString(code), 'rcode conversion from/to string matches: ' + rcodes.toString(code))
   }
 
-  const ops = ['QUERY', 'IQUERY', 'STATUS', 'OPCODE_3', 'NOTIFY', 'UPDATE', 'OPCODE_6', 'OPCODE_7', 'OPCODE_8', 'OPCODE_9', 'OPCODE_10', 'OPCODE_11', 'OPCODE_12', 'OPCODE_13', 'OPCODE_14', 'OPCODE_15']
+  const ops = ['QUERY', 'IQUERY', 'STATUS', 'OPCODE_3', 'NOTIFY', 'UPDATE', 'DSO', 'OPCODE_7', 'OPCODE_8', 'OPCODE_9', 'OPCODE_10', 'OPCODE_11', 'OPCODE_12', 'OPCODE_13', 'OPCODE_14', 'OPCODE_15']
   for (const j in ops) {
     const ocode = opcodes.toOpcode(ops[j])
     t.ok(ops[j] === opcodes.toString(ocode), 'opcode conversion from/to string matches: ' + opcodes.toString(ocode))
@@ -1199,6 +1199,114 @@ tape('edns options: malformed data keeps the raw bytes', function (t) {
   for (const option of decoded.slice(2)) {
     t.same(Object.keys(option).sort(), ['code', 'data', 'type'], `${option.type}: only the raw data`)
   }
+  t.end()
+})
+
+tape('names: master-file escaping', function (t) {
+  const cases = [
+    // [wire labels, decoded string]
+    [[[0x61, 0x2e, 0x62], ascii('example')], 'a\\.b.example'], // a dot inside a label
+    [[[0x00], ascii('example'), ascii('com')], '\\000.example.com'], // NSEC "black lies"
+    [[[0x61, 0x20, 0x62], ascii('example')], 'a\\032b.example'], // space
+    [[[0x61, 0x5c, 0x62], ascii('example')], 'a\\\\b.example'], // backslash
+    [[[0xff, 0x41], ascii('example')], '\\255A.example'], // not UTF-8
+    [[ascii('bücher'), ascii('example')], 'bücher.example'], // UTF-8 stays as it is
+    [[ascii('example'), ascii('com')], 'example.com']
+  ]
+  for (const [labels, str] of cases) {
+    const wire = Uint8Array.from([...labels.flatMap(l => [l.length, ...l]), 0])
+    t.same(packet.name.decode(wire), str, `decode ${str}`)
+    t.same(toHex(packet.name.encode(str), 0, wire.length), toHex(wire, 0, wire.length), `encode ${str}`)
+    t.same(packet.name.encodingLength(str), wire.length, `encodingLength ${str}`)
+  }
+  t.same(packet.name.decode(packet.name.encode('example.com.')), 'example.com', 'trailing dot')
+  t.same(packet.name.decode(packet.name.encode('.')), '.', 'root')
+  t.throws(() => packet.name.encode('x'.repeat(64) + '.example'), /longer than 63/)
+
+  const [rr] = roundTrip([{ type: 'NSEC', name: 'a.example', data: { nextDomain: '\\000.a.example', rrtypes: ['A', 'RRSIG', 'NSEC'] } }])
+  t.same(rdataToString(rr), '\\000.a.example. A RRSIG NSEC')
+  t.end()
+
+  function ascii (s) { return Array.from(Buffer.from(s)) }
+})
+
+tape('keyTag', function (t) {
+  // RFC 4034 section 5.4
+  t.same(packet.keyTag({
+    flags: 256,
+    algorithm: 5,
+    key: Buffer.from('AQOeiiR0GOMYkDshWoSKz9XzfwJr1AYtsmx3TGkJaNXVbfi/2pHm822aJ5iI9BMzNXxeYCmZDRD99WYwYqUSdjMmmAphXdvxegXd/M5+X7OrzKBaMbCVdFLUUh6DhweJBjEVv5f2wwjM9XzcnOf+EPbtG9DMBmADjFDc2w/rljwvFw==', 'base64')
+  }), 60485)
+  // Root zone KSK-2017
+  const rootKsk = {
+    flags: 257,
+    algorithm: 8,
+    key: Buffer.from('AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU=', 'base64')
+  }
+  t.same(packet.keyTag(rootKsk), 20326)
+  t.same(packet.dnskey.keyTag(rootKsk), 20326, 'also on the dnskey codec')
+  // Works on decoded DNSKEY data
+  const [rr] = roundTrip([{ type: 'DNSKEY', name: '.', data: rootKsk }])
+  t.same(packet.keyTag(rr.data), 20326)
+  // RSA/MD5 (appendix B.1): bits 8-23 counted from the end of the modulus
+  t.same(packet.keyTag({ flags: 256, algorithm: 1, key: Buffer.from('0300010001aabbccdd', 'hex') }), 0xbbcc)
+  t.end()
+})
+
+tape('partial decode', function (t) {
+  const full = packet.encode({
+    type: 'response',
+    questions: [{ type: 'A', name: 'example.com' }],
+    answers: [
+      { type: 'A', name: 'example.com', ttl: 60, data: '192.0.2.1' },
+      { type: 'A', name: 'example.com', ttl: 60, data: '192.0.2.2' }
+    ],
+    authorities: [{ type: 'NS', name: 'example.com', ttl: 60, data: 'ns1.example.com' }]
+  })
+  // header 12, question 13 + 4, each A answer 13 + 10 + 4 (names are not compressed when encoding)
+  const secondAnswer = 12 + 17 + 27
+  const cut = full.subarray(0, secondAnswer + 15) // in the middle of the second answer
+  t.throws(() => packet.decode(cut), 'still throws without the option')
+
+  const partial = packet.decode(cut, 0, { partial: true })
+  t.same(partial.questions.length, 1)
+  t.same(partial.answers.map(a => a.data), ['192.0.2.1'], 'records before the error are kept')
+  t.same(partial.authorities, [])
+  t.same(partial.error.section, 'answers')
+  t.same(partial.error.index, 1)
+  t.same(partial.error.counts, { questions: 1, answers: 2, authorities: 1, additionals: 0 })
+  t.ok(partial.error.message)
+
+  t.same(packet.decode(full, 0, { partial: true }).error, undefined, 'no error for a complete packet')
+  t.throws(() => packet.decode(full.subarray(0, 10), 0, { partial: true }), /Header/, 'the header must be complete')
+  // A record cut right after its name used to decode as a bogus type 0 record
+  const afterName = full.subarray(0, 12 + 17 + 13 + 3)
+  t.same(packet.decode(afterName, 0, { partial: true }).error.section, 'answers')
+  t.end()
+})
+
+tape('classes, opcodes, rcodes and fullRcode', function (t) {
+  t.same(opcodes.toString(6), 'DSO')
+  t.same(opcodes.toOpcode('OPCODE_6'), 6)
+  t.same(rcodes.toString(11), 'DSOTYPENI')
+  t.same(rcodes.toString(16), 'BADVERS')
+  t.same(rcodes.toString(23), 'BADCOOKIE')
+  t.same(rcodes.toRcode('BADSIG'), 16)
+  t.same(rcodes.toString(24), 'RCODE_24')
+
+  // CLASS NONE (RFC 2136) round trip
+  const [rr] = roundTrip([{ type: 'A', name: 'example.com', class: 'NONE', data: '192.0.2.1' }])
+  t.same(rr.class, 'NONE')
+
+  // BADCOOKIE (23) = OPT extended RCODE 1 << 4 | header RCODE 7
+  const decoded = packet.decode(packet.encode({
+    type: 'response',
+    flags: 7,
+    additionals: [{ type: 'OPT', name: '.', udpPayloadSize: 1232, extendedRcode: 1 }]
+  }))
+  t.same(decoded.rcode, 'YXRRSET', 'rcode stays the 4-bit header value')
+  t.same(decoded.fullRcode, 'BADCOOKIE')
+  t.same(packet.decode(packet.encode({ type: 'response', flags: 3 })).fullRcode, 'NXDOMAIN', 'no OPT: same as rcode')
   t.end()
 })
 

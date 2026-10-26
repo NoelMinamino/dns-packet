@@ -2,6 +2,7 @@ export type Classes = "IN"
   | "CS"
   | "CH"
   | "HS"
+  | "NONE"
   | "ANY"
   | string;
 

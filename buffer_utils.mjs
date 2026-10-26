@@ -2,6 +2,18 @@ import * as utf8 from 'utf8-codec'
 
 export const isU8Arr = input => input instanceof Uint8Array
 
+// Is there a valid UTF-8 sequence of a non-ASCII character at bytes[i], ending by `end`?
+// Returns its length, or 0.
+export function utf8SequenceLength (bytes, i, end = bytes.length) {
+  const lead = bytes[i]
+  const len = lead >= 0xf0 && lead <= 0xf4 ? 4 : lead >= 0xe0 ? (lead <= 0xef ? 3 : 0) : lead >= 0xc2 && lead <= 0xdf ? 2 : 0
+  if (!len || i + len > end) return 0
+  for (let j = 1; j < len; j++) {
+    if ((bytes[i + j] & 0xc0) !== 0x80) return 0
+  }
+  return len
+}
+
 export function bytelength (input) {
   return typeof input === 'string' ? utf8.encodingLength(input) : input.byteLength
 }

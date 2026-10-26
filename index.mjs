@@ -26,22 +26,70 @@ function codec ({ bytes = 0, encode, decode, encodingLength }) {
   }
 }
 
+// Names are strings in master-file form (RFC 1035 section 5.1): inside a label "." and "\" are written as
+// "\." and "\\", and bytes that are not printable as "\DDD" (decimal). Valid UTF-8 is kept as it is.
+function escapeLabel (buf, start, end) {
+  let out = ''
+  for (let i = start; i < end; i++) {
+    const c = buf[i]
+    if (c === 0x2e || c === 0x5c) {
+      out += '\\' + String.fromCharCode(c)
+    } else if (c > 0x20 && c < 0x7f) {
+      out += String.fromCharCode(c)
+    } else {
+      const len = c >= 0x80 ? b.utf8SequenceLength(buf, i, end) : 0
+      if (len) {
+        out += toUtf8(buf, i, i + len)
+        i += len - 1
+      } else {
+        out += '\\' + String(c).padStart(3, '0')
+      }
+    }
+  }
+  return out
+}
+
+// The labels of a name in master-file form, as bytes. Empty labels (leading / trailing ".") are dropped.
+function nameLabels (str) {
+  if (!str.includes('\\')) {
+    return str.split('.').filter(label => label.length).map(label => b.from(label))
+  }
+  const labels = []
+  let label = []
+  const chars = Array.from(str)
+  for (let i = 0; i < chars.length; i++) {
+    let ch = chars[i]
+    if (ch === '.') {
+      if (label.length) labels.push(Uint8Array.from(label))
+      label = []
+      continue
+    }
+    if (ch === '\\' && i + 1 < chars.length) {
+      const digits = chars.slice(i + 1, i + 4).join('')
+      if (/^\d{3}$/.test(digits) && Number(digits) <= 255) {
+        label.push(Number(digits))
+        i += 3
+        continue
+      }
+      ch = chars[++i]
+    }
+    label.push(...b.from(ch))
+  }
+  if (label.length) labels.push(Uint8Array.from(label))
+  return labels
+}
+
 export const name = codec({
   encode (str, buf, offset) {
     if (!buf) buf = new Uint8Array(name.encodingLength(str))
     if (!offset) offset = 0
     const oldOffset = offset
 
-    // strip leading and trailing .
-    const n = str.replace(/^\.|\.$/gm, '')
-    if (n.length) {
-      const list = n.split('.')
-
-      for (let i = 0; i < list.length; i++) {
-        const len = b.write(buf, list[i], offset + 1)
-        buf[offset] = len
-        offset += len + 1
-      }
+    for (const label of nameLabels(str)) {
+      if (label.length > 63) throw new Error(`Cannot encode name (label longer than 63 bytes): ${str}`)
+      buf[offset++] = label.length
+      buf.set(label, offset)
+      offset += label.length
     }
 
     buf[offset++] = 0
@@ -75,7 +123,7 @@ export const name = codec({
         if (totalLength > 254) {
           throw new Error('Cannot decode name (name too long)')
         }
-        list.push(toUtf8(buf, offset, offset + len))
+        list.push(escapeLabel(buf, offset, offset + len))
         offset += len
         consumedBytes += jumped ? 0 : len
       } else if ((len & 0xc0) === 0xc0) {
@@ -102,8 +150,7 @@ export const name = codec({
     return list.length === 0 ? '.' : list.join('.')
   },
   encodingLength (n) {
-    if (n === '.' || n === '..') return 1
-    return b.bytelength(n.replace(/^\.|\.$/gm, '')) + 2
+    return nameLabels(n).reduce((sum, label) => sum + label.length + 1, 1)
   }
 })
 
@@ -896,6 +943,28 @@ const rdnskey = codec({
 rdnskey.PROTOCOL_DNSSEC = 3
 rdnskey.ZONE_KEY = 0x80
 rdnskey.SECURE_ENTRYPOINT = 0x8000
+
+// Key tag of a DNSKEY / CDNSKEY / KEY / RKEY (RFC 4034, appendix B), as used by DS and RRSIG.
+// `protocol` defaults to 3, as DNSKEY data does not carry it.
+export function keyTag (key) {
+  const rdata = new Uint8Array(4 + key.key.length)
+  b.writeUInt16BE(rdata, key.flags, 0)
+  rdata[2] = key.protocol === undefined ? rdnskey.PROTOCOL_DNSSEC : key.protocol
+  rdata[3] = key.algorithm
+  rdata.set(key.key, 4)
+
+  if (key.algorithm === 1) {
+    // RSA/MD5 (appendix B.1): the 16 bits above the least significant 8 bits of the modulus
+    return rdata.length < 7 ? 0 : (rdata[rdata.length - 3] << 8) | rdata[rdata.length - 2]
+  }
+  let ac = 0
+  for (let i = 0; i < rdata.length; i++) {
+    ac += (i & 1) ? rdata[i] : rdata[i] << 8
+  }
+  ac += (ac >> 16) & 0xffff
+  return ac & 0xffff
+}
+rdnskey.keyTag = keyTag
 
 const rrrsig = codec({
   encode (sig, buf, offset) {
@@ -2625,6 +2694,7 @@ export const answer = codec({
 
     a.name = name.decode(buf, offset)
     offset += name.decode.bytes
+    if (offset + 10 > buf.length) throw new Error('Cannot decode record (buffer overflow)')
     a.type = types.toString(b.readUInt16BE(buf, offset))
     if (a.type === 'OPT') {
       a.udpPayloadSize = b.readUInt16BE(buf, offset + 2)
@@ -2693,6 +2763,7 @@ export const question = codec({
 
     q.name = name.decode(buf, offset)
     offset += name.decode.bytes
+    if (offset + 4 > buf.length) throw new Error('Cannot decode question (buffer overflow)')
 
     q.type = types.toString(b.readUInt16BE(buf, offset))
     offset += 2
@@ -2826,17 +2897,41 @@ export const packet = {
 
     return buf
   },
-  decode: function (buf, offset) {
+  // options.partial: when a record cannot be decoded, return the records decoded so far instead of
+  // throwing. The sections are cut at that point and `error` says where and why (the header itself
+  // must still be complete).
+  decode: function (buf, offset, options) {
     if (!offset) offset = 0
 
     const oldOffset = offset
     const result = header.decode(buf, offset)
     offset += header.decode.bytes
 
-    offset = decodeList(result.questions, question, buf, offset)
-    offset = decodeList(result.answers, answer, buf, offset)
-    offset = decodeList(result.authorities, answer, buf, offset)
-    offset = decodeList(result.additionals, answer, buf, offset)
+    const sections = [['questions', question], ['answers', answer], ['authorities', answer], ['additionals', answer]]
+    const counts = {}
+    for (const [key] of sections) counts[key] = result[key].length
+    for (let s = 0; s < sections.length && !result.error; s++) {
+      const [key, enc] = sections[s]
+      const list = result[key]
+      for (let i = 0; i < list.length; i++) {
+        try {
+          list[i] = enc.decode(buf, offset)
+          offset += enc.decode.bytes
+        } catch (err) {
+          if (!options || !options.partial) throw err
+          list.length = i
+          for (const [rest] of sections.slice(s + 1)) result[rest].length = 0
+          result.error = { section: key, index: i, message: err.message, counts }
+          break
+        }
+      }
+    }
+
+    // RCODE with the 8 upper bits that EDNS keeps in the OPT record (RFC 6891)
+    const opt = result.additionals.find(a => a.type === 'OPT')
+    result.fullRcode = opt
+      ? rcodes.toString((opt.extendedRcode << 4) | (result.flags & 0xf))
+      : result.rcode
 
     packet.decode.bytes = offset - oldOffset
 

@@ -1,21 +1,26 @@
+// IANA "DNS CLASSes"
+// https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
+const CLASSES = {
+  1: 'IN',
+  2: 'CS',
+  3: 'CH',
+  4: 'HS',
+  254: 'NONE',
+  255: 'ANY'
+}
+
+const NAMES = {}
+for (const [klass, name] of Object.entries(CLASSES)) NAMES[name] = Number(klass)
+
 export function toString (klass) {
-  switch (klass) {
-    case 1: return 'IN'
-    case 2: return 'CS'
-    case 3: return 'CH'
-    case 4: return 'HS'
-    case 255: return 'ANY'
-  }
-  return 'UNKNOWN_' + klass
+  return CLASSES[klass] || 'UNKNOWN_' + klass
 }
 
 export function toClass (name) {
-  switch (name.toUpperCase()) {
-    case 'IN': return 1
-    case 'CS': return 2
-    case 'CH': return 3
-    case 'HS': return 4
-    case 'ANY': return 255
-  }
+  const upper = name.toUpperCase()
+  if (Object.prototype.hasOwnProperty.call(NAMES, upper)) return NAMES[upper]
+  // RFC 3597 generic class names (CLASS32) and this library's UNKNOWN_32
+  const generic = /^(?:CLASS|UNKNOWN_)(\d+)$/.exec(upper)
+  if (generic) return parseInt(generic[1], 10)
   return 0
 }

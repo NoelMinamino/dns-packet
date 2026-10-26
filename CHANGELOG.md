@@ -10,6 +10,17 @@
 - Fix: an option whose data does not have the expected layout keeps only code/type/data instead of
     reading past it (CLIENT_SUBNET, KEY_TAG).
 - An option without data or fields (e.g. an NSID request) is encoded with empty data instead of throwing.
+- Feature: domain names are escaped in master-file form (`\.`, `\\`, `\DDD`) when decoded and unescaped
+    when encoded, so labels containing dots or non-printable bytes (e.g. `\000.example.com`) keep their
+    labels. Labels longer than 63 bytes are rejected when encoding.
+- Feature: keyTag(dnskey) (also dnskey.keyTag) computes the RFC 4034 key tag.
+- Feature: decode(buf, offset, { partial: true }) returns the records decoded before a problem, with
+    packet.error, instead of throwing.
+- Feature: packet.fullRcode is the 12-bit RCODE including the OPT record's upper bits (BADVERS, BADCOOKIE, ...).
+- Feature: CLASS NONE (254), OPCODE DSO (6), RCODEs DSOTYPENI (11) and 16-23 (BADVERS ... BADCOOKIE);
+    toClass() accepts CLASS<n>.
+- Fix: a question or record cut right after its name now throws instead of decoding as type 0.
+- Types: Packet.rcode is RCode (it was declared as RecordClass), DNSKeyData.key is Uint8Array (it was string).
 
 # Version 7.0.0 - 2026-10-26 (@noelminamino/dns-packet)
 

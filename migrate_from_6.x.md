@@ -15,8 +15,9 @@ What changes is **how the RDATA of many record types is returned**, and a few th
 | [Type names](#3-every-iana-type-has-a-name) | you branch on an `UNKNOWN_` string, such as `rr.type === 'UNKNOWN_65'` or `startsWith('UNKNOWN_')` (a table that only renames types keeps working) |
 | [Malformed RDATA](#4-malformed-rdata-no-longer-breaks-the-whole-packet) | you rely on `decode()` throwing for one bad record |
 | [EDNS option names](#5-edns-options-have-names-and-fields-710) | you compare an option's `type` with `'OPTION_15'` … `'OPTION_26'` (checking `code` keeps working) |
-| [Node.js 22+](#6-nodejs-22-or-later) | you run it on Node.js older than 22 |
-| [Presentation format](#7-new-zone-file-text-for-any-record) | never (optional, but it can replace your own formatter) |
+| [Escaped names, code names](#6-escaped-names-new-code-names-and-helpers-710) | you handle names with unusual bytes, or compare `'OPCODE_6'` / `'RCODE_11'` |
+| [Node.js 22+](#7-nodejs-22-or-later) | you run it on Node.js older than 22 |
+| [Presentation format](#8-new-zone-file-text-for-any-record) | never (optional, but it can replace your own formatter) |
 
 ## 1. Package name and import
 
@@ -37,7 +38,7 @@ import * as dnsPacket from 'https://esm.sh/@noelminamino/dns-packet@7.0.0'   // 
 
 In 6.x only about 20 types were decoded; every other type came back as the raw RDATA (`Uint8Array`).
 In 7, every IANA type that has a defined RDATA format is decoded. If you parsed those bytes yourself,
-read the fields instead (or skip parsing entirely and use [`rdataToString`](#7-new-zone-file-text-for-any-record)).
+read the fields instead (or skip parsing entirely and use [`rdataToString`](#8-new-zone-file-text-for-any-record)).
 
 ```js
 // before: HTTPS was type "UNKNOWN_65" and data was the raw RDATA
@@ -160,11 +161,33 @@ Unusual option contents are handled as before: an unassigned EDE `infoCode` is r
 and an option whose data is too short or has a bad length keeps only `code`, `type` and `data`
 without throwing.
 
-## 6. Node.js 22 or later
+## 6. Escaped names, new code names and helpers (7.1.0)
+
+**Names.** Domain names are now strings in master-file form (RFC 1035 section 5.1). Ordinary names are
+unchanged; only labels with unusual bytes look different, and they no longer lose their label boundaries:
+
+| Labels on the wire | 6.x / 7.0 | 7.1 |
+| --- | --- | --- |
+| `a.b` (one label with a dot), `example` | `'a.b.example'` (looks like 3 labels) | `'a\\.b.example'` |
+| NUL byte, `example`, `com` (NSEC "black lies") | `'\u0000.example.com'` | `'\\000.example.com'` |
+| space, backslash, bytes that are not UTF-8 | raw characters | `\032`, `\\`, `\DDD` (as written in the name) |
+
+`encode()` reads the same escapes, so decoded names encode back to the same bytes. If you un-escaped
+NUL bytes yourself (for example `name.replace(/\u0000/g, '\\000')`), that is no longer needed.
+
+**Code names.** Like the EDNS options, numbers that now have IANA names change from the generic form:
+OPCODE 6 `'OPCODE_6'` → `'DSO'`, RCODE 11 `'RCODE_11'` → `'DSOTYPENI'`, and class 254 `'UNKNOWN_254'` → `'NONE'`.
+Compare numbers, or the new names.
+
+**New, nothing to change:** `keyTag(dnskey)` computes the key tag used by DS and RRSIG;
+`decode(buf, 0, { partial: true })` returns the records decoded before a broken one, with `packet.error`;
+`packet.fullRcode` includes the EDNS upper bits (`'BADCOOKIE'`, …), while `rcode` stays the header value.
+
+## 7. Node.js 22 or later
 
 `engines` is now `>=22` (6.x said `>=6`). Browsers and esm.sh are not affected.
 
-## 7. New: zone-file text for any record
+## 8. New: zone-file text for any record
 
 If you wrote your own "RDATA to text" function, `rdataToString` / `rrToString` can replace it.
 
@@ -227,4 +250,5 @@ rendezvous servers, NXT lists its types, and so on.
       the types in [section 2](#2-more-record-types-are-decoded-into-objects); read the fields or use `rdataToString`.
 - [ ] Where you caught `decode()` errors to detect bad records, check `rr.dataError` instead.
 - [ ] Search for `OPTION_` in EDNS option handling; compare `option.code` (or the new names) instead.
+- [ ] Search for `OPCODE_6`, `RCODE_11`, `UNKNOWN_254`, and for code that escapes NUL bytes in names.
 - [ ] Node.js 22+ on servers.
