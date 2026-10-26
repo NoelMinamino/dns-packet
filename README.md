@@ -1,5 +1,5 @@
-# @dnsquery/dns-packet
-[![](https://img.shields.io/npm/v/@dnsquery/dns-packet.svg?style=flat)](https://www.npmjs.org/package/@dnsquery/dns-packet) [![](https://img.shields.io/npm/dm/@dnsquery/dns-packet.svg)](https://www.npmjs.org/package/@dnsquery/dns-packet) [![Tests](https://github.com/dnsquery/dns-packet/actions/workflows/test.yml/badge.svg)](https://github.com/dnsquery/dns-packet/actions/workflows/test.yml)
+# @noelminamino/dns-packet
+[![](https://img.shields.io/npm/v/@noelminamino/dns-packet.svg?style=flat)](https://www.npmjs.org/package/@noelminamino/dns-packet) [![](https://img.shields.io/npm/dm/@noelminamino/dns-packet.svg)](https://www.npmjs.org/package/@noelminamino/dns-packet) [![Tests](https://github.com/NoelMinamino/dns-packet/actions/workflows/test.yml/badge.svg)](https://github.com/NoelMinamino/dns-packet/actions/workflows/test.yml)
 
 An [abstract-encoding](https://github.com/mafintosh/abstract-encoding) compliant module for encoding / decoding DNS packets. Lifted out of [multicast-dns](https://github.com/mafintosh/multicast-dns) as a separate module.
 
@@ -8,14 +8,21 @@ not use Node.js primitives. Works well in browsers/react-native.
 
 [dns-packet]: https://github.com/mafintosh/dns-packet
 
+> **@noelminamino/dns-packet** は [@dnsquery/dns-packet](https://github.com/dnsquery/dns-packet) の fork です。
+> [ldns.jp](https://ldns.jp/) で必要な RR タイプ（SVCB/HTTPS, TLSA, NAPTR, LOC など）のデコード対応を追加していきます。
+>
+> ```js
+> import * as dnsPacket from "https://esm.sh/gh/NoelMinamino/dns-packet@<tag>"
+> ```
+
 ```
-npm install @dnsquery/dns-packet
+npm install @noelminamino/dns-packet
 ```
 
 ## UDP Usage
 
 ``` js
-import * as dnsPacket from '@dnsquery/dns-packet'
+import * as dnsPacket from '@noelminamino/dns-packet'
 import dgram from 'dgram'
 
 const socket = dgram.createSocket('udp4')
@@ -95,7 +102,7 @@ import {
   AUTHORITATIVE_ANSWER,
   AUTHENTIC_DATA,
   CHECKING_DISABLED
-} from '@dnsquery/dns-packet'
+} from '@noelminamino/dns-packet'
 ```
 
 To use more than one flag bitwise-or them together

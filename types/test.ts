@@ -1,6 +1,6 @@
 /* tslint:disable:no-duplicate-imports */
-import * as dnsPacket from '@leichtgewicht/dns-packet';
-import { Codec, UnknownCodec } from '@leichtgewicht/dns-packet';
+import * as dnsPacket from '@noelminamino/dns-packet';
+import { Codec, UnknownCodec } from '@noelminamino/dns-packet';
 
 dnsPacket.decode(dnsPacket.encode({
   id: 1,
