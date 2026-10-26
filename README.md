@@ -8,14 +8,14 @@ not use Node.js primitives. Works well in browsers/react-native.
 
 [dns-packet]: https://github.com/mafintosh/dns-packet
 
-> **@noelminamino/dns-packet** は [@dnsquery/dns-packet](https://github.com/dnsquery/dns-packet) の fork です。
-> [ldns.jp](https://ldns.jp/) のために、IANA の全 RR タイプのデコードとゾーンファイル形式の出力に対応しています。
+> **@noelminamino/dns-packet** is a fork of [@dnsquery/dns-packet](https://github.com/dnsquery/dns-packet).
+> For [ldns.jp](https://ldns.jp/) it decodes every IANA RR type and EDNS option and writes records in zone file format.
 >
 > ```js
 > import * as dnsPacket from "https://esm.sh/@noelminamino/dns-packet@7.1.1"
 > ```
 >
-> 6.x からの移行: [English](migrate_from_6.x.md) / [日本語](migrate_from_6.x.ja.md)
+> Migrating from 6.x: [English](migrate_from_6.x.md) / [Japanese](migrate_from_6.x.ja.md)
 
 ```
 npm install @noelminamino/dns-packet
