@@ -12,7 +12,7 @@ not use Node.js primitives. Works well in browsers/react-native.
 > [ldns.jp](https://ldns.jp/) のために、IANA の全 RR タイプのデコードとゾーンファイル形式の出力に対応しています。
 >
 > ```js
-> import * as dnsPacket from "https://esm.sh/@noelminamino/dns-packet@7.0.0"
+> import * as dnsPacket from "https://esm.sh/@noelminamino/dns-packet@7.1.0"
 > ```
 >
 > 6.x からの移行: [English](migrate_from_6.x.md) / [日本語](migrate_from_6.x.ja.md)

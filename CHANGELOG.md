@@ -1,4 +1,4 @@
-# Unreleased (7.1.0)
+# Version 7.1.0 - 2026-10-26 (@noelminamino/dns-packet)
 
 - Feature: every IANA EDNS option code has a name. Codes 15 and up change from OPTION_<code> to EDE,
     CLIENT_TAG, SERVER_TAG, REPORT_CHANNEL, ZONEVERSION, MQTYPE_QUERY, MQTYPE_RESPONSE, ... (code and data
