@@ -1,10 +1,16 @@
 {
   "name": "@noelminamino/dns-packet",
   "version": "6.5.0-nm.0",
-  "description": "An abstract-encoding compliant module for encoding / decoding DNS packets",
+  "description": "Encode / decode DNS packets with every IANA RR type and zone file (presentation) output. Fork of @dnsquery/dns-packet for ldns.jp.",
   "author": "Mathias Buus",
+  "contributors": [
+    "Noel Minamino (https://github.com/NoelMinamino)"
+  ],
   "license": "MIT",
-  "repository": "NoelMinamino/dns-packet",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NoelMinamino/dns-packet.git"
+  },
   "homepage": "https://github.com/NoelMinamino/dns-packet",
   "main": "./index.js",
   "module": "./index.mjs",
@@ -51,6 +57,17 @@
       "require": "./presentation.js"
     }
   },
+  "files": [
+    "*.mjs",
+    "*.js",
+    "*.d.ts",
+    "types/index.d.ts",
+    "examples/*.mjs",
+    "CHANGELOG.md",
+    "!test.*",
+    "!eslint.config.*",
+    "!examples/*.js"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -60,7 +77,11 @@
     "test": "npm run lint && npm run unit",
     "unit": "tape test.mjs",
     "coverage": "c8 -r html npm test",
-    "prepare": "npx @leichtgewicht/esm2umd"
+    "prepare": "npx @leichtgewicht/esm2umd",
+    "prepublishOnly": "npm test"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@leichtgewicht/ip-codec": "^2.0.4",
@@ -74,6 +95,11 @@
     "tape": "^5.6.1",
     "typescript": "^5.9.3"
   },
+  "overrides": {
+    "tape": {
+      "glob": "^13.0.6"
+    }
+  },
   "keywords": [
     "dns",
     "packet",
@@ -81,13 +107,5 @@
     "encoding",
     "encoder",
     "abstract-encoding"
-  ],
-  "contributors": [
-    "Noel Minamino (https://github.com/NoelMinamino)"
-  ],
-  "overrides": {
-    "tape": {
-      "glob": "^13.0.6"
-    }
-  }
+  ]
 }
