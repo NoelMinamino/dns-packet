@@ -14,8 +14,9 @@ API（`encode`、`decode`、パケットの構造、フラグ、`streamEncode` /
 | [オブジェクトで返る型が増えた](#2-オブジェクトで返る型が増えた) | SVCB/HTTPS、TLSA、NAPTR、CDS、LOC などの `rr.data` をバイト列として自分で解析している場合 |
 | [型名](#3-iana-の全型に名前が付いた) | `rr.type === 'UNKNOWN_65'` や `startsWith('UNKNOWN_')` のように `UNKNOWN_` の文字列を条件にしている場合（名前を直す対応表は残しても動く） |
 | [壊れた RDATA](#4-壊れた-rdata-があってもパケット全体は失敗しない) | 1 レコードの不正で `decode()` が例外を投げることに頼っている場合 |
-| [Node.js 22 以上](#5-nodejs-22-以上) | Node.js 22 未満で動かしている場合 |
-| [ゾーンファイル形式の文字列化](#6-新機能レコードをゾーンファイル形式の文字列に) | 不要（任意。ただし自前の整形処理を置き換えられる） |
+| [EDNS オプション名](#5-edns-オプションに名前とフィールドが付いた710) | オプションの `type` を `'OPTION_15'`〜`'OPTION_26'` の文字列と比較している場合（`code` で判定していれば動く） |
+| [Node.js 22 以上](#6-nodejs-22-以上) | Node.js 22 未満で動かしている場合 |
+| [ゾーンファイル形式の文字列化](#7-新機能レコードをゾーンファイル形式の文字列に) | 不要（任意。ただし自前の整形処理を置き換えられる） |
 
 ## 1. パッケージ名と import
 
@@ -36,7 +37,7 @@ import * as dnsPacket from 'https://esm.sh/@noelminamino/dns-packet@7.0.0'   // 
 
 6.x でデコードされるのは約 20 型だけで、それ以外の型は RDATA の生バイト列（`Uint8Array`）のまま返っていました。
 7 では、RDATA の形式が定められている IANA の型はすべてデコードされます。そのバイト列を自分で解析していた場合は、
-フィールドを読むように書き換えてください（あるいは解析をやめて [`rdataToString`](#6-新機能レコードをゾーンファイル形式の文字列に) を使います）。
+フィールドを読むように書き換えてください（あるいは解析をやめて [`rdataToString`](#7-新機能レコードをゾーンファイル形式の文字列に) を使います）。
 
 ```js
 // 変更前: HTTPS は "UNKNOWN_65" という型で、data は RDATA の生バイト列だった
@@ -126,11 +127,43 @@ for (const rr of packet.answers) {
 
 ヘッダーが短い、名前が壊れているなど、パケットの構造そのものが壊れている場合は、これまでどおり `decode()` が例外を投げます。
 
-## 5. Node.js 22 以上
+## 5. EDNS オプションに名前とフィールドが付いた（7.1.0）
+
+IANA に登録されている EDNS オプションには、すべて `type` に名前が付くようになりました。6.x と 7.0 では、
+15 番以降は `'OPTION_<番号>'` でした。いくつかのオプションは、中身もフィールドに分けて `data` と一緒に返します。
+
+| `code` | 6.x / 7.0 の `type` | 7.1 の `type` | 追加されるフィールド |
+| --- | --- | --- | --- |
+| 15 | `OPTION_15` | `EDE` | `infoCode`、`extraText` |
+| 16, 17 | `OPTION_16`、`OPTION_17` | `CLIENT_TAG`、`SERVER_TAG` | `tag` |
+| 18 | `OPTION_18` | `REPORT_CHANNEL` | `agentDomain` |
+| 19 | `OPTION_19` | `ZONEVERSION` | `labelCount`、`versionType`、`version`、`serial` |
+| 20, 21 | `OPTION_20`、`OPTION_21` | `MQTYPE_QUERY`、`MQTYPE_RESPONSE` | `qtypes` |
+| 22〜26 | `OPTION_22` … | `EDE_EXTRA_TEXT_LANGUAGE` … `STRUCTURED_DNS_ERROR` | なし |
+| 5〜7, 9, 10, 13 | （名前は以前から付いている） | 変更なし | `algorithms`、`expire`、`clientCookie` / `serverCookie`、`closestTrustPoint` |
+
+`code` と `data` は変わらないので、オプションを `code` で見分けて `data` を読むコードはそのまま動きます。
+一致しなくなるのは `OPTION_` の文字列と比較している場合だけです。
+
+```js
+// 変更が必要
+if (option.type === 'OPTION_15') { /* EDE */ }
+
+// そのまま動く（しかもフィールドが追加される）
+if (option.code === 15) {
+  option.infoCode     // 18
+  option.extraText    // 'blocked by policy'
+}
+```
+
+想定外の中身の扱いはこれまでと同じです。未割り当ての EDE の `infoCode` もほかと同じように返し、
+データが短すぎる・長さがおかしいオプションは例外を投げず、`code`、`type`、`data` だけを返します。
+
+## 6. Node.js 22 以上
 
 `engines` が `>=22` になりました（6.x は `>=6`）。ブラウザや esm.sh での利用には影響しません。
 
-## 6. 新機能：レコードをゾーンファイル形式の文字列に
+## 7. 新機能：レコードをゾーンファイル形式の文字列に
 
 「RDATA を文字列にする」処理を自前で書いていた場合は、`rdataToString` / `rrToString` で置き換えられます。
 
@@ -156,7 +189,8 @@ rdataToString(rr)     // '1 . alpn="h2,h3" ipv4hint=192.0.2.1'
 - 6.x からデコードされていた型の `data`: A、AAAA、NS、CNAME、DNAME、PTR、MX、SOA、SRV、TXT、NULL、
   HINFO、CAA、RP、DNSKEY、RRSIG、NSEC、NSEC3、DS、OPT（6.1.x からは SSHFP も）。
 - IANA 未割り当ての型: これまでどおり `type` は `'UNKNOWN_<番号>'`、`data` は `Uint8Array`。
-- `rcodes`、`opcodes`、`classes`、`optioncodes`。
+- `rcodes`、`opcodes`、`classes`。`optioncodes` も 15 番以降に名前が付いた点以外は同じ。
+- EDNS オプションの `code` と `data`、および `CLIENT_SUBNET`、`TCP_KEEPALIVE`、`PADDING`、`KEY_TAG` のフィールド。
 
 ## 移行例: ldns.jp
 
@@ -191,4 +225,5 @@ NXT にタイプ一覧が出る、などです。
 - [ ] [2 章](#2-オブジェクトで返る型が増えた)の型について、`rr.data` をバイト列として読んでいる箇所
       （`instanceof Uint8Array`、`DataView`、`data[0]` など）を検索し、フィールドを読むか `rdataToString` を使う。
 - [ ] 不正なレコードを `decode()` の例外で検出していた箇所は、`rr.dataError` を見るように変える。
+- [ ] EDNS オプションの処理で `OPTION_` を検索し、`option.code`（または新しい名前）で判定するように変える。
 - [ ] サーバーで動かす場合は Node.js 22 以上にする。

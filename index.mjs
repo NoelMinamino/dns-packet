@@ -605,82 +605,183 @@ const raaaa = codec({
 
 const alloc = size => new Uint8Array(size)
 
+// EDNS option fields, by option code. `decode(data)` reads the OPTION-DATA bytes and returns the fields
+// to add next to `data`; it throws when the data does not have the expected layout, in which case the
+// option keeps only `data`. `encode(option)` builds the OPTION-DATA bytes from those fields.
+const u16List = data => {
+  if (data.length % 2) throw new Error('odd length')
+  const list = []
+  for (let i = 0; i < data.length; i += 2) list.push(b.readUInt16BE(data, i))
+  return list
+}
+const fromU16List = list => {
+  const out = new Uint8Array(list.length * 2)
+  list.forEach((n, i) => b.writeUInt16BE(out, n, i * 2))
+  return out
+}
+const nameField = (data, key) => {
+  const value = name.decode(data, 0)
+  if (name.decode.bytes !== data.length) throw new Error('trailing data')
+  return { [key]: value }
+}
+const algorithmList = {
+  decode: data => ({ algorithms: Array.from(data) }),
+  encode: option => Uint8Array.from(option.algorithms || [])
+}
+const tag = {
+  // draft-bellis-dnsop-edns-tags: a 16-bit tag
+  decode: data => {
+    if (data.length !== 2) throw new Error('bad length')
+    return { tag: b.readUInt16BE(data, 0) }
+  },
+  encode: option => fromU16List([option.tag])
+}
+const mqtype = {
+  // RFC 10029: a list of 16-bit QTYPEs
+  decode: data => ({ qtypes: u16List(data).map(t => types.toString(t)) }),
+  encode: option => fromU16List((option.qtypes || []).map(t => typeof t === 'number' ? t : types.toType(t)))
+}
+
+const OPTION_FIELDS = {
+  5: algorithmList, // DAU (RFC 6975)
+  6: algorithmList, // DHU
+  7: algorithmList, // N3U
+  8: { // CLIENT_SUBNET (RFC 7871)
+    decode: data => {
+      if (data.length < 4) throw new Error('too short')
+      const family = b.readUInt16BE(data, 0)
+      const padded = new Uint8Array(family === 1 ? 4 : 16)
+      padded.set(data.subarray(4, 4 + padded.length))
+      return { family, sourcePrefixLength: data[2], scopePrefixLength: data[3], ip: ip.decode(padded) }
+    },
+    // note: do IP math before calling
+    encode: option => {
+      const spl = option.sourcePrefixLength || 0
+      const ipBuf = ip.encode(option.ip, alloc)
+      const ipLen = Math.ceil(spl / 8)
+      const out = new Uint8Array(4 + ipLen)
+      b.writeUInt16BE(out, option.family || ip.familyOf(option.ip, alloc), 0)
+      out[2] = spl
+      out[3] = option.scopePrefixLength || 0
+      out.set(ipBuf.subarray(0, ipLen), 4)
+      return out
+    }
+  },
+  9: { // EXPIRE (RFC 7314); empty in queries
+    decode: data => {
+      if (data.length === 0) return {}
+      if (data.length !== 4) throw new Error('bad length')
+      return { expire: b.readUInt32BE(data, 0) }
+    },
+    encode: option => {
+      if (typeof option.expire !== 'number') return new Uint8Array(0)
+      const out = new Uint8Array(4)
+      b.writeUInt32BE(out, option.expire, 0)
+      return out
+    }
+  },
+  10: { // COOKIE (RFC 7873): 8-byte client cookie, then an 8 to 32-byte server cookie
+    decode: data => {
+      if (data.length < 8) throw new Error('too short')
+      const fields = { clientCookie: data.slice(0, 8) }
+      if (data.length > 8) fields.serverCookie = data.slice(8)
+      return fields
+    },
+    encode: option => {
+      const server = option.serverCookie || new Uint8Array(0)
+      const out = new Uint8Array(8 + server.length)
+      out.set(option.clientCookie)
+      out.set(server, 8)
+      return out
+    }
+  },
+  11: { // TCP_KEEPALIVE (RFC 7828), in units of 100 ms; empty in queries
+    decode: data => {
+      if (data.length === 0) return {}
+      if (data.length !== 2) throw new Error('bad length')
+      return { timeout: b.readUInt16BE(data, 0) }
+    },
+    encode: option => typeof option.timeout === 'number' && option.timeout ? fromU16List([option.timeout]) : new Uint8Array(0)
+  },
+  12: { // PADDING (RFC 7830)
+    decode: data => ({ length: data.length }),
+    encode: option => new Uint8Array(option.length || 0)
+  },
+  13: { // CHAIN (RFC 7901)
+    decode: data => nameField(data, 'closestTrustPoint'),
+    encode: option => name.encode(option.closestTrustPoint)
+  },
+  14: { // KEY_TAG (RFC 8145)
+    decode: data => ({ tags: u16List(data) }),
+    encode: option => fromU16List(option.tags)
+  },
+  15: { // EDE (RFC 8914): INFO-CODE, then optional UTF-8 EXTRA-TEXT
+    decode: data => {
+      if (data.length < 2) throw new Error('too short')
+      return { infoCode: b.readUInt16BE(data, 0), extraText: new TextDecoder().decode(data.subarray(2)) }
+    },
+    encode: option => {
+      const text = b.from(option.extraText || '')
+      const out = new Uint8Array(2 + text.length)
+      b.writeUInt16BE(out, option.infoCode || 0, 0)
+      out.set(text, 2)
+      return out
+    }
+  },
+  16: tag, // CLIENT_TAG
+  17: tag, // SERVER_TAG
+  18: { // REPORT_CHANNEL (RFC 9567)
+    decode: data => nameField(data, 'agentDomain'),
+    encode: option => name.encode(option.agentDomain)
+  },
+  19: { // ZONEVERSION (RFC 9660); empty in queries
+    decode: data => {
+      if (data.length === 0) return {}
+      if (data.length < 2) throw new Error('too short')
+      const fields = { labelCount: data[0], versionType: data[1], version: data.slice(2) }
+      // type 0: SOA serial
+      if (fields.versionType === 0 && fields.version.length === 4) fields.serial = b.readUInt32BE(data, 2)
+      return fields
+    },
+    encode: option => {
+      if (option.versionType === undefined) return new Uint8Array(0)
+      let version = option.version
+      if (!version && typeof option.serial === 'number') {
+        version = new Uint8Array(4)
+        b.writeUInt32BE(version, option.serial, 0)
+      }
+      version = version || new Uint8Array(0)
+      const out = new Uint8Array(2 + version.length)
+      out[0] = option.labelCount || 0
+      out[1] = option.versionType
+      out.set(version, 2)
+      return out
+    }
+  },
+  20: mqtype, // MQTYPE_QUERY
+  21: mqtype // MQTYPE_RESPONSE
+}
+
+function optionData (option, code) {
+  if (option.data) return option.data
+  const fields = OPTION_FIELDS[code]
+  // Options carried only as bytes (NSID, ...) are empty without `data`, e.g. an NSID request
+  if (!fields) return new Uint8Array(0)
+  return fields.encode(option)
+}
+
 const roption = codec({
   encode (option, buf, offset) {
     if (!buf) buf = new Uint8Array(roption.encodingLength(option))
     if (!offset) offset = 0
-    const oldOffset = offset
 
     const code = optioncodes.toCode(option.code)
+    const data = optionData(option, code)
     b.writeUInt16BE(buf, code, offset)
-    offset += 2
-    if (option.data) {
-      b.writeUInt16BE(buf, option.data.length, offset)
-      offset += 2
-      b.copy(option.data, buf, offset, 0, option.data.length)
-      offset += option.data.length
-    } else {
-      switch (code) {
-        // case 3: NSID.  No encode makes sense.
-        // case 5,6,7: Not implementable
-        case 8: // ECS
-          {
-            // note: do IP math before calling
-            const spl = option.sourcePrefixLength || 0
-            const fam = option.family || ip.familyOf(option.ip, alloc)
-            const ipBuf = ip.encode(option.ip, alloc)
-            const ipLen = Math.ceil(spl / 8)
-            b.writeUInt16BE(buf, ipLen + 4, offset)
-            offset += 2
-            b.writeUInt16BE(buf, fam, offset)
-            offset += 2
-            buf[offset++] = spl
-            buf[offset++] = option.scopePrefixLength || 0
+    b.writeUInt16BE(buf, data.length, offset + 2)
+    b.copy(data, buf, offset + 4, 0, data.length)
 
-            b.copy(ipBuf, buf, offset, 0, ipLen)
-            offset += ipLen
-          }
-          break
-        // case 9: EXPIRE (experimental)
-        // case 10: COOKIE.  No encode makes sense.
-        case 11: // KEEP-ALIVE
-          if (option.timeout) {
-            b.writeUInt16BE(buf, 2, offset)
-            offset += 2
-            b.writeUInt16BE(buf, option.timeout, offset)
-            offset += 2
-          } else {
-            b.writeUInt16BE(buf, 0, offset)
-            offset += 2
-          }
-          break
-        case 12: // PADDING
-          {
-            const len = option.length || 0
-            b.writeUInt16BE(buf, len, offset)
-            offset += 2
-            buf.fill(0, offset, offset + len)
-            offset += len
-          }
-          break
-        // case 13:  CHAIN.  Experimental.
-        case 14: // KEY-TAG
-          {
-            const tagsLen = option.tags.length * 2
-            b.writeUInt16BE(buf, tagsLen, offset)
-            offset += 2
-            for (const tag of option.tags) {
-              b.writeUInt16BE(buf, tag, offset)
-              offset += 2
-            }
-          }
-          break
-        default:
-          throw new Error(`Unknown roption code: ${option.code}`)
-      }
-    }
-
-    roption.encode.bytes = offset - oldOffset
+    roption.encode.bytes = data.length + 4
     return buf
   },
   decode (buf, offset) {
@@ -688,61 +789,23 @@ const roption = codec({
     const option = {}
     option.code = b.readUInt16BE(buf, offset)
     option.type = optioncodes.toString(option.code)
-    offset += 2
-    const len = b.readUInt16BE(buf, offset)
-    offset += 2
-    option.data = buf.slice(offset, offset + len)
-    switch (option.code) {
-      // case 3: NSID.  No decode makes sense.
-      case 8: // ECS
-        option.family = b.readUInt16BE(buf, offset)
-        offset += 2
-        option.sourcePrefixLength = buf[offset++]
-        option.scopePrefixLength = buf[offset++]
-        {
-          const padded = new Uint8Array((option.family === 1) ? 4 : 16)
-          b.copy(buf, padded, 0, offset, offset + len - 4)
-          option.ip = ip.decode(padded)
-        }
-        break
-      // case 12: Padding.  No decode makes sense.
-      case 11: // KEEP-ALIVE
-        if (len > 0) {
-          option.timeout = b.readUInt16BE(buf, offset)
-          offset += 2
-        }
-        break
-      case 14:
-        option.tags = []
-        for (let i = 0; i < len; i += 2) {
-          option.tags.push(b.readUInt16BE(buf, offset))
-          offset += 2
-        }
-      // don't worry about default.  caller will use data if desired
+    const len = b.readUInt16BE(buf, offset + 2)
+    option.data = buf.slice(offset + 4, offset + 4 + len)
+
+    const fields = OPTION_FIELDS[option.code]
+    if (fields) {
+      try {
+        Object.assign(option, fields.decode(option.data))
+      } catch (err) {
+        // Malformed OPTION-DATA: keep only `data`
+      }
     }
 
     roption.decode.bytes = len + 4
     return option
   },
   encodingLength (option) {
-    if (option.data) {
-      return option.data.length + 4
-    }
-    const code = optioncodes.toCode(option.code)
-    switch (code) {
-      case 8: // ECS
-      {
-        const spl = option.sourcePrefixLength || 0
-        return Math.ceil(spl / 8) + 8
-      }
-      case 11: // KEEP-ALIVE
-        return (typeof option.timeout === 'number') ? 6 : 4
-      case 12: // PADDING
-        return option.length + 4
-      case 14: // KEY-TAG
-        return 4 + (option.tags.length * 2)
-    }
-    throw new Error(`Unknown roption code: ${option.code}`)
+    return 4 + optionData(option, optioncodes.toCode(option.code)).length
   }
 })
 

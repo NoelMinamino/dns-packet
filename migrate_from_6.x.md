@@ -14,8 +14,9 @@ What changes is **how the RDATA of many record types is returned**, and a few th
 | [Records decoded into objects](#2-more-record-types-are-decoded-into-objects) | you read `rr.data` bytes of SVCB/HTTPS, TLSA, NAPTR, CDS, LOC, … yourself |
 | [Type names](#3-every-iana-type-has-a-name) | you branch on an `UNKNOWN_` string, such as `rr.type === 'UNKNOWN_65'` or `startsWith('UNKNOWN_')` (a table that only renames types keeps working) |
 | [Malformed RDATA](#4-malformed-rdata-no-longer-breaks-the-whole-packet) | you rely on `decode()` throwing for one bad record |
-| [Node.js 22+](#5-nodejs-22-or-later) | you run it on Node.js older than 22 |
-| [Presentation format](#6-new-zone-file-text-for-any-record) | never (optional, but it can replace your own formatter) |
+| [EDNS option names](#5-edns-options-have-names-and-fields-710) | you compare an option's `type` with `'OPTION_15'` … `'OPTION_26'` (checking `code` keeps working) |
+| [Node.js 22+](#6-nodejs-22-or-later) | you run it on Node.js older than 22 |
+| [Presentation format](#7-new-zone-file-text-for-any-record) | never (optional, but it can replace your own formatter) |
 
 ## 1. Package name and import
 
@@ -36,7 +37,7 @@ import * as dnsPacket from 'https://esm.sh/@noelminamino/dns-packet@7.0.0'   // 
 
 In 6.x only about 20 types were decoded; every other type came back as the raw RDATA (`Uint8Array`).
 In 7, every IANA type that has a defined RDATA format is decoded. If you parsed those bytes yourself,
-read the fields instead (or skip parsing entirely and use [`rdataToString`](#6-new-zone-file-text-for-any-record)).
+read the fields instead (or skip parsing entirely and use [`rdataToString`](#7-new-zone-file-text-for-any-record)).
 
 ```js
 // before: HTTPS was type "UNKNOWN_65" and data was the raw RDATA
@@ -126,11 +127,44 @@ for (const rr of packet.answers) {
 
 `decode()` still throws when the packet structure itself is broken (truncated header, bad name, …).
 
-## 5. Node.js 22 or later
+## 5. EDNS options have names and fields (7.1.0)
+
+Every EDNS option registered with IANA now has a name in `type`. In 6.x and 7.0, the codes from 15 up
+were `'OPTION_<code>'`. Several options also get their contents as fields, next to `data`.
+
+| `code` | `type` in 6.x / 7.0 | `type` in 7.1 | New fields |
+| --- | --- | --- | --- |
+| 15 | `OPTION_15` | `EDE` | `infoCode`, `extraText` |
+| 16, 17 | `OPTION_16`, `OPTION_17` | `CLIENT_TAG`, `SERVER_TAG` | `tag` |
+| 18 | `OPTION_18` | `REPORT_CHANNEL` | `agentDomain` |
+| 19 | `OPTION_19` | `ZONEVERSION` | `labelCount`, `versionType`, `version`, `serial` |
+| 20, 21 | `OPTION_20`, `OPTION_21` | `MQTYPE_QUERY`, `MQTYPE_RESPONSE` | `qtypes` |
+| 22–26 | `OPTION_22` … | `EDE_EXTRA_TEXT_LANGUAGE` … `STRUCTURED_DNS_ERROR` | — |
+| 5–7, 9, 10, 13 | (already named) | unchanged | `algorithms`, `expire`, `clientCookie` / `serverCookie`, `closestTrustPoint` |
+
+`code` and `data` are unchanged, so code that tells options apart by `code` and reads `data` keeps
+working. Only a comparison with an `OPTION_` string stops matching:
+
+```js
+// needs a change
+if (option.type === 'OPTION_15') { /* EDE */ }
+
+// keeps working (and now the fields are there too)
+if (option.code === 15) {
+  option.infoCode     // 18
+  option.extraText    // 'blocked by policy'
+}
+```
+
+Unusual option contents are handled as before: an unassigned EDE `infoCode` is returned like any other,
+and an option whose data is too short or has a bad length keeps only `code`, `type` and `data`
+without throwing.
+
+## 6. Node.js 22 or later
 
 `engines` is now `>=22` (6.x said `>=6`). Browsers and esm.sh are not affected.
 
-## 6. New: zone-file text for any record
+## 7. New: zone-file text for any record
 
 If you wrote your own "RDATA to text" function, `rdataToString` / `rrToString` can replace it.
 
@@ -156,7 +190,8 @@ Records without a known format, and records with `dataError`, are written as `\#
 - `data` of the types 6.x already decoded: A, AAAA, NS, CNAME, DNAME, PTR, MX, SOA, SRV, TXT, NULL,
   HINFO, CAA, RP, DNSKEY, RRSIG, NSEC, NSEC3, DS, OPT (and SSHFP from 6.1.x).
 - Unregistered types: `type` is `'UNKNOWN_<n>'` and `data` is a `Uint8Array`, as before.
-- `rcodes`, `opcodes`, `classes`, `optioncodes`.
+- `rcodes`, `opcodes`, `classes`; `optioncodes` except the new names for codes 15 and up.
+- EDNS options: `code` and `data`, and the fields of `CLIENT_SUBNET`, `TCP_KEEPALIVE`, `PADDING`, `KEY_TAG`.
 
 ## Example: ldns.jp
 
@@ -191,4 +226,5 @@ rendezvous servers, NXT lists its types, and so on.
 - [ ] Search for code that reads `rr.data` as bytes (`instanceof Uint8Array`, `DataView`, `data[0]`) for
       the types in [section 2](#2-more-record-types-are-decoded-into-objects); read the fields or use `rdataToString`.
 - [ ] Where you caught `decode()` errors to detect bad records, check `rr.dataError` instead.
+- [ ] Search for `OPTION_` in EDNS option handling; compare `option.code` (or the new names) instead.
 - [ ] Node.js 22+ on servers.

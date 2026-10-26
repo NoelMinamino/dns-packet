@@ -1,3 +1,16 @@
+# Unreleased (7.1.0)
+
+- Feature: every IANA EDNS option code has a name. Codes 15 and up change from OPTION_<code> to EDE,
+    CLIENT_TAG, SERVER_TAG, REPORT_CHANNEL, ZONEVERSION, MQTYPE_QUERY, MQTYPE_RESPONSE, ... (code and data
+    are unchanged).
+- Feature: EDNS option fields, on decoding and encoding: DAU/DHU/N3U algorithms, EXPIRE expire, COOKIE
+    clientCookie/serverCookie, CHAIN closestTrustPoint, EDE infoCode/extraText, CLIENT_TAG/SERVER_TAG tag,
+    REPORT_CHANNEL agentDomain, ZONEVERSION labelCount/versionType/version/serial, MQTYPE qtypes,
+    PADDING length.
+- Fix: an option whose data does not have the expected layout keeps only code/type/data instead of
+    reading past it (CLIENT_SUBNET, KEY_TAG).
+- An option without data or fields (e.g. an NSID request) is encoded with empty data instead of throwing.
+
 # Version 7.0.0 - 2026-10-26 (@noelminamino/dns-packet)
 
 First release on npm. Includes everything from 6.2.0-nm.0 to 6.5.0-nm.0 below.

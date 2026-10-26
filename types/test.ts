@@ -1,5 +1,5 @@
 import * as dnsPacket from '@noelminamino/dns-packet';
-import { A6Data, Answer, Codec, NaptrData, OpaqueData, Packet, SvcbData, TsigData, UnknownCodec } from '@noelminamino/dns-packet';
+import { A6Data, Answer, OptionData, Codec, NaptrData, OpaqueData, Packet, SvcbData, TsigData, UnknownCodec } from '@noelminamino/dns-packet';
 
 // Fails to compile unless the value's type is exactly Expected (replaces dtslint's $ExpectType)
 type Exact<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -108,3 +108,9 @@ expectType<A6Data>()(dnsPacket.a6.decode(new Uint8Array(0)));
 expectType<OpaqueData>()(dnsPacket.hhit.decode(new Uint8Array(0)));
 expectType<string>()(dnsPacket.rrToString(httpsAnswer));
 expectType<string>()(dnsPacket.rdataToString(tlsaAnswer, { trailingDot: false, utf8: true }));
+const ednsOptions: OptionData[] = [
+  { code: 'EDE', infoCode: 18, extraText: 'blocked' },
+  { code: 'COOKIE', clientCookie: new Uint8Array(8) },
+  { code: 'MQTYPE_QUERY', qtypes: ['AAAA', 'HTTPS'] },
+  { code: 'ZONEVERSION', labelCount: 2, versionType: 0, serial: 1 }
+];

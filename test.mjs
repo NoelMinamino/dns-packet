@@ -1098,6 +1098,110 @@ tape('presentation: unknown and malformed rdata, rrToString', function (t) {
   t.end()
 })
 
+tape('optioncodes: IANA names', function (t) {
+  const opts = [
+    [15, 'EDE'], [16, 'CLIENT_TAG'], [17, 'SERVER_TAG'], [18, 'REPORT_CHANNEL'], [19, 'ZONEVERSION'],
+    [20, 'MQTYPE_QUERY'], [21, 'MQTYPE_RESPONSE'], [22, 'EDE_EXTRA_TEXT_LANGUAGE'], [23, 'FILTERING_CONTACT'],
+    [24, 'FILTERING_ORGANIZATION'], [25, 'FILTERING_DB'], [26, 'STRUCTURED_DNS_ERROR'], [20292, 'UMBRELLA_IDENT'],
+    [27, 'OPTION_27']
+  ]
+  for (const [code, str] of opts) {
+    t.same(optioncodes.toString(code), str, `${code} => ${str}`)
+    t.same(optioncodes.toCode(str), code, `${str} => ${code}`)
+  }
+  t.same(optioncodes.toCode('ede'), 15)
+  for (let code = 0; code < 65536; code++) {
+    if (optioncodes.toCode(optioncodes.toString(code)) !== code) {
+      t.fail(`toCode(toString(${code})) round trip`)
+      break
+    }
+  }
+  t.end()
+})
+
+// Encodes the options into an OPT record and decodes them again
+function optionRoundTrip (options) {
+  return packet.decode(packet.encode({
+    type: 'response',
+    additionals: [{ type: 'OPT', name: '.', udpPayloadSize: 1232, options }]
+  })).additionals[0].options
+}
+
+// Decodes options given as raw OPTION-DATA, to test what arrives off the wire
+function rawOptions (...options) {
+  return optionRoundTrip(options.map(([code, bytes]) => ({ code, data: Uint8Array.from(bytes) })))
+}
+
+tape('edns options: fields', function (t) {
+  const decoded = optionRoundTrip([
+    { code: 'DAU', algorithms: [8, 13, 15] },
+    { code: 'EXPIRE' },
+    { code: 'EXPIRE', expire: 86400 },
+    { code: 'COOKIE', clientCookie: Buffer.from('0102030405060708', 'hex') },
+    { code: 'COOKIE', clientCookie: Buffer.from('0102030405060708', 'hex'), serverCookie: Buffer.from('1112131415161718', 'hex') },
+    { code: 'CHAIN', closestTrustPoint: 'example.com' },
+    { code: 'EDE', infoCode: 18, extraText: 'blocked by policy' },
+    { code: 'EDE', infoCode: 999 },
+    { code: 'CLIENT_TAG', tag: 0x1234 },
+    { code: 'REPORT_CHANNEL', agentDomain: 'a01.agent-domain.example' },
+    { code: 'ZONEVERSION' },
+    { code: 'ZONEVERSION', labelCount: 2, versionType: 0, serial: 2026102601 },
+    { code: 'MQTYPE_QUERY', qtypes: ['AAAA', 'HTTPS'] },
+    { code: 'NSID' }
+  ])
+  t.same(decoded.map(o => o.type), ['DAU', 'EXPIRE', 'EXPIRE', 'COOKIE', 'COOKIE', 'CHAIN', 'EDE', 'EDE', 'CLIENT_TAG',
+    'REPORT_CHANNEL', 'ZONEVERSION', 'ZONEVERSION', 'MQTYPE_QUERY', 'NSID'])
+  t.same(decoded[0].algorithms, [8, 13, 15])
+  t.same(decoded[1].expire, undefined)
+  t.same(decoded[2].expire, 86400)
+  t.same(toHex(decoded[3].clientCookie, 0, 8), '0102030405060708')
+  t.same(decoded[3].serverCookie, undefined)
+  t.same(toHex(decoded[4].serverCookie, 0, 8), '1112131415161718')
+  t.same(decoded[5].closestTrustPoint, 'example.com')
+  t.same([decoded[6].infoCode, decoded[6].extraText], [18, 'blocked by policy'])
+  t.same([decoded[7].infoCode, decoded[7].extraText], [999, ''], 'unassigned INFO-CODE is decoded like any other')
+  t.same(decoded[8].tag, 0x1234)
+  t.same(decoded[9].agentDomain, 'a01.agent-domain.example')
+  t.same(decoded[10].versionType, undefined)
+  t.same([decoded[11].labelCount, decoded[11].versionType, decoded[11].serial], [2, 0, 2026102601])
+  t.same(decoded[12].qtypes, ['AAAA', 'HTTPS'])
+  t.same(decoded[13].data.length, 0, 'NSID request without data is empty')
+  t.end()
+})
+
+tape('edns options: wire format', function (t) {
+  // RFC 8914: INFO-CODE 18 (Prohibited) without EXTRA-TEXT
+  t.same(toHex(packet.option.encode({ code: 'EDE', infoCode: 18 }), 0, 6), '000f00020012')
+  // RFC 10029: MQTYPE-Query for AAAA (28) and HTTPS (65)
+  t.same(toHex(packet.option.encode({ code: 'MQTYPE_QUERY', qtypes: ['AAAA', 'HTTPS'] }), 0, 8), '00140004001c0041')
+  // `data` takes precedence over the fields
+  t.same(toHex(packet.option.encode({ code: 'EDE', infoCode: 18, data: Buffer.from('0001', 'hex') }), 0, 6), '000f00020001')
+  t.end()
+})
+
+tape('edns options: malformed data keeps the raw bytes', function (t) {
+  const decoded = rawOptions(
+    [15, [7]], // EDE shorter than INFO-CODE
+    [15, [0, 0, 0xff, 0xfe]], // EDE with EXTRA-TEXT that is not UTF-8
+    [10, [1, 2, 3]], // COOKIE shorter than a client cookie
+    [8, [0, 1]], // CLIENT_SUBNET without prefix lengths
+    [14, [0, 1, 2]], // KEY_TAG with an odd length
+    [20, [0, 28, 0]], // MQTYPE_QUERY with an odd length
+    [13, [3, 99]], // CHAIN with a truncated name
+    [9, [1, 2]] // EXPIRE with a bad length
+  )
+  t.same(decoded.map(o => o.type), ['EDE', 'EDE', 'COOKIE', 'CLIENT_SUBNET', 'KEY_TAG', 'MQTYPE_QUERY', 'CHAIN', 'EXPIRE'])
+  t.same(Object.keys(decoded[0]).sort(), ['code', 'data', 'type'])
+  t.same(Array.from(decoded[0].data), [7])
+  t.same(decoded[1].infoCode, 0)
+  t.same(decoded[1].extraText, '��', 'invalid UTF-8 becomes U+FFFD')
+  t.same(Array.from(decoded[1].data), [0, 0, 0xff, 0xfe], 'the raw bytes are kept')
+  for (const option of decoded.slice(2)) {
+    t.same(Object.keys(option).sort(), ['code', 'data', 'type'], `${option.type}: only the raw data`)
+  }
+  t.end()
+})
+
 function wireHex (rpacket, val) {
   const buf = rpacket.encode(val)
   return toHex(buf, 0, buf.length)

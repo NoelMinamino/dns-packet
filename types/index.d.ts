@@ -667,13 +667,72 @@ export interface KeyTagOptionData {
   code: 'KEY_TAG';
   tags: number[];
 }
+/** DAU / DHU / N3U (RFC 6975) */
+export interface AlgorithmListOptionData {
+  code: 'DAU' | 'DHU' | 'N3U';
+  algorithms: number[];
+}
+/** EXPIRE (RFC 7314); expire is absent in queries */
+export interface ExpireOptionData {
+  code: 'EXPIRE';
+  expire?: number;
+}
+/** COOKIE (RFC 7873) */
+export interface CookieOptionData {
+  code: 'COOKIE';
+  clientCookie: Uint8Array;
+  serverCookie?: Uint8Array;
+}
+/** CHAIN (RFC 7901) */
+export interface ChainOptionData {
+  code: 'CHAIN';
+  closestTrustPoint: string;
+}
+/** Extended DNS Error (RFC 8914). INFO-CODE is not checked against the registry. */
+export interface EdeOptionData {
+  code: 'EDE';
+  infoCode: number;
+  extraText?: string;
+}
+/** EDNS-Client-Tag / EDNS-Server-Tag (draft-bellis-dnsop-edns-tags) */
+export interface TagOptionData {
+  code: 'CLIENT_TAG' | 'SERVER_TAG';
+  tag: number;
+}
+/** Report-Channel (RFC 9567) */
+export interface ReportChannelOptionData {
+  code: 'REPORT_CHANNEL';
+  agentDomain: string;
+}
+/** ZONEVERSION (RFC 9660); the fields are absent in queries. serial is set for version type 0 (SOA serial). */
+export interface ZoneVersionOptionData {
+  code: 'ZONEVERSION';
+  labelCount?: number;
+  versionType?: number;
+  version?: Uint8Array;
+  serial?: number;
+}
+/** MQTYPE-Query / MQTYPE-Response (RFC 10029) */
+export interface MqtypeOptionData {
+  code: 'MQTYPE_QUERY' | 'MQTYPE_RESPONSE';
+  qtypes: RecordType[];
+}
 
 export type OptionData =
     GenericOptionData
   | ClientSubnetOptionData
   | TCPKeepaliveOptionData
   | PaddingOptionData
-  | KeyTagOptionData;
+  | KeyTagOptionData
+  | AlgorithmListOptionData
+  | ExpireOptionData
+  | CookieOptionData
+  | ChainOptionData
+  | EdeOptionData
+  | TagOptionData
+  | ReportChannelOptionData
+  | ZoneVersionOptionData
+  | MqtypeOptionData;
 
 export interface RRSigData {
   signature: Uint8Array;

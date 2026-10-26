@@ -321,7 +321,29 @@ Records without a known format, and records whose RDATA could not be decoded (se
 }
 ```
 
-The options `PADDING`, `CLIENT_SUBNET`, `TCP_KEEPALIVE` and `KEY_TAG` support enhanced de/encoding. See [optionscodes.js](https://github.com/mafintosh/dns-packet/blob/master/optioncodes.js) for all supported option codes. If the `data` property is present on a option, it takes precedence. On decoding, `data` will always be defined.
+Every option has `code` (number), `type` (the IANA name from [optioncodes.mjs](optioncodes.mjs), or
+`OPTION_<code>`) and `data` (the raw OPTION-DATA). These options also get fields, on decoding and encoding:
+
+| `type` | Fields |
+| --- | --- |
+| `DAU`, `DHU`, `N3U` | `algorithms: [8, 13]` |
+| `CLIENT_SUBNET` | `family`, `sourcePrefixLength`, `scopePrefixLength`, `ip` |
+| `EXPIRE` | `expire` (absent in queries) |
+| `COOKIE` | `clientCookie` (8 bytes), `serverCookie` |
+| `TCP_KEEPALIVE` | `timeout` (100 ms units; absent in queries) |
+| `PADDING` | `length` |
+| `CHAIN` | `closestTrustPoint` |
+| `KEY_TAG` | `tags: [1, 2, 3]` |
+| `EDE` | `infoCode`, `extraText` |
+| `CLIENT_TAG`, `SERVER_TAG` | `tag` |
+| `REPORT_CHANNEL` | `agentDomain` |
+| `ZONEVERSION` | `labelCount`, `versionType`, `version`, and `serial` for type 0 (absent in queries) |
+| `MQTYPE_QUERY`, `MQTYPE_RESPONSE` | `qtypes: ['AAAA', 'HTTPS']` |
+
+If the `data` property is present on an option, it takes precedence when encoding. On decoding, `data`
+is always defined; when it does not have the layout the option expects (too short, bad length, …) the
+option keeps only `code`, `type` and `data`, and decoding carries on. Values are not checked against
+their registries: an unassigned EDE `infoCode` is returned like any other.
 
 #### `PTR`
 
