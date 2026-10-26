@@ -733,3 +733,5 @@ export function encodeList <T= any>(list: T[], codec: Codec<T>, buf?: Uint8Array
 export function encodingLengthList <T= any>(list: T[], codec: Codec<T>): number;
 export function streamDecode(buffer: Uint8Array): Packet | null;
 export function streamEncode(packet: Packet): Uint8Array;
+
+export { rdataToString, rrToString, PresentationOptions } from '../presentation';

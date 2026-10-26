@@ -7,6 +7,8 @@ import * as optioncodes from './optioncodes.mjs'
 import * as b from './buffer_utils.mjs'
 import { decode as toUtf8 } from 'utf8-codec'
 
+export { rdataToString, rrToString } from './presentation.mjs'
+
 const QUERY_FLAG = 0
 const RESPONSE_FLAG = 1 << 15
 const FLUSH_MASK = 1 << 15
@@ -615,7 +617,7 @@ const roption = codec({
     if (option.data) {
       b.writeUInt16BE(buf, option.data.length, offset)
       offset += 2
-      b.copy(option.data, buf, offset)
+      b.copy(option.data, buf, offset, 0, option.data.length)
       offset += option.data.length
     } else {
       switch (code) {

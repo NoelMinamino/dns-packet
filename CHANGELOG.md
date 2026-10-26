@@ -1,3 +1,9 @@
+# Version 6.5.0-nm.0 - 2026-10-26 (@noelminamino/dns-packet)
+
+- Feature: presentation.mjs with rdataToString() / rrToString() (also exported from the package root),
+    writing every supported record type in presentation (zone file) format. Options: trailingDot, utf8.
+- Fix: EDNS options given as raw data were encoded as zeros (the data was never copied).
+
 # Version 6.4.0-nm.0 - 2026-10-26 (@noelminamino/dns-packet)
 
 - Feature: Decode/encode SIG, KEY, RKEY, TALINK, WKS, X25, ISDN, NSAP, GPOS, A6, NXT, ATMA, DOA and SINK.

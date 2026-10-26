@@ -139,6 +139,28 @@ And an answer, additional, or authority looks like this
 }
 ```
 
+## Presentation format
+
+`rdataToString` and `rrToString` write a decoded record in presentation (zone file) format,
+following RFC 1035 and the RFC of each record type.
+
+``` js
+import { decode, rdataToString, rrToString } from '@noelminamino/dns-packet'
+
+const answer = decode(buf).answers[0]
+rdataToString(answer) // '10 mail.example.com.'
+rrToString(answer) // 'example.com. 300 IN MX 10 mail.example.com.'
+```
+
+Options:
+
+- `trailingDot` (default `true`): write domain names inside RDATA as absolute names ending with `.`
+- `utf8` (default `false`): keep valid UTF-8 text in quoted strings instead of `\DDD` escapes
+
+Records without a known format, and records whose RDATA could not be decoded (see
+[Malformed RDATA](#malformed-rdata)), are written in the RFC 3597 form `\# <length> <hex>`.
+`OPT` is written that way too, with the UDP payload size as `CLASS<n>`.
+
 ## Supported record types
 
 #### `A`
@@ -611,7 +633,7 @@ Kept opaque.
 
 #### `LOC`
 
-Values are kept as on the wire (RFC 1876).
+Values are kept as on the wire (RFC 1876). This is `42 21 54.000 N 71 6 18.000 W -24.00m 30.00m 10000.00m 10.00m`:
 
 ``` js
 {
@@ -619,9 +641,9 @@ Values are kept as on the wire (RFC 1876).
   size: 0x33, // mantissa (high nibble) and power of ten (low nibble), in cm
   horizontalPrecision: 0x16,
   verticalPrecision: 0x13,
-  latitude: 0x89170b30, // thousandths of an arc second, 2^31 is the equator
-  longitude: 0x70be1c38, // thousandths of an arc second, 2^31 is the prime meridian
-  altitude: 0x00989530 // cm, 10000000 is sea level
+  latitude: 0x89172dd0, // thousandths of an arc second, 2^31 is the equator
+  longitude: 0x70be15f0, // thousandths of an arc second, 2^31 is the prime meridian
+  altitude: 0x00988d20 // cm, 10000000 is sea level
 }
 ```
 

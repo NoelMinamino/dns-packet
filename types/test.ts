@@ -103,3 +103,5 @@ const wksAnswer: Answer = {
 const spfAnswer: Answer = { type: 'SPF', name: 'example.com', data: 'v=spf1 -all' };
 dnsPacket.a6.decode(new Uint8Array(0)); // $ExpectType A6Data
 dnsPacket.hhit.decode(new Uint8Array(0)); // $ExpectType OpaqueData
+dnsPacket.rrToString(httpsAnswer); // $ExpectType string
+dnsPacket.rdataToString(tlsaAnswer, { trailingDot: false, utf8: true }); // $ExpectType string

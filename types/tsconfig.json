@@ -15,6 +15,7 @@
       "@noelminamino/dns-packet": ["./types/index.d.ts"],
       "@noelminamino/dns-packet/optioncodes.js": ["./optioncodes.d.ts"],
       "@noelminamino/dns-packet/types.js": ["./types.d.ts"],
+      "@noelminamino/dns-packet/presentation.js": ["./presentation.d.ts"],
       "@noelminamino/dns-packet/rcodes.js": ["./rcodes.d.ts"]
     }
   }

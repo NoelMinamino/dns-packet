@@ -4,6 +4,7 @@ import * as rcodes from './rcodes.mjs'
 import * as opcodes from './opcodes.mjs'
 import * as optioncodes from './optioncodes.mjs'
 import * as types from './types.mjs'
+import { rdataToString, rrToString, toBase32Hex, toBase64 } from './presentation.mjs'
 import { decode as toUtf8 } from 'utf8-codec'
 import { write, toHex, bytelength, writeHex, hexLength } from './buffer_utils.mjs'
 
@@ -858,9 +859,9 @@ tape('loc', function (t) {
     size: 0x33,
     horizontalPrecision: 0x16,
     verticalPrecision: 0x13,
-    latitude: 0x89170b30,
-    longitude: 0x70be1c38,
-    altitude: 0x00989530
+    latitude: 2 ** 31 + (42 * 3600 + 21 * 60 + 54) * 1000,
+    longitude: 2 ** 31 - (71 * 3600 + 6 * 60 + 18) * 1000,
+    altitude: 10000000 - 2400
   }
   testEncoder(t, packet.loc, val)
   const buf = packet.loc.encode(val)
@@ -950,6 +951,150 @@ tape('new record types round trip through packet', function (t) {
   const decoded = packet.decode(packet.encode({ type: 'response', answers }))
   t.same(decoded.answers.map(a => a.type), ['HTTPS', 'TLSA', 'CDS', 'URI'])
   t.ok(compare(t, answers, decoded.answers), 'decoded answers match')
+  t.end()
+})
+
+// Encodes the records into a packet and decodes them again, as they would arrive off the wire
+function roundTrip (answers) {
+  return packet.decode(packet.encode({
+    type: 'response',
+    answers: answers.map(a => ({ name: 'example.com', ttl: 300, ...a }))
+  })).answers
+}
+
+function presentation (answer, options) {
+  return rdataToString(roundTrip([answer])[0], options)
+}
+
+tape('presentation: base64 / base32hex', function (t) {
+  t.same(toBase64(Buffer.from('')), '')
+  t.same(toBase64(Buffer.from('f')), 'Zg==')
+  t.same(toBase64(Buffer.from('fo')), 'Zm8=')
+  t.same(toBase64(Buffer.from('foobar')), 'Zm9vYmFy')
+  // RFC 4648 section 10
+  t.same(toBase32Hex(Buffer.from('foobar')), 'CPNMUOJ1E8')
+  t.same(toBase32Hex(Buffer.from('f')), 'CO')
+  t.end()
+})
+
+tape('presentation: names and common types', function (t) {
+  t.same(presentation({ type: 'A', data: '192.0.2.1' }), '192.0.2.1')
+  t.same(presentation({ type: 'NS', data: 'ns1.example.com' }), 'ns1.example.com.')
+  t.same(presentation({ type: 'NS', data: 'ns1.example.com' }, { trailingDot: false }), 'ns1.example.com')
+  t.same(presentation({ type: 'MX', data: { preference: 10, exchange: 'mail.example.com' } }), '10 mail.example.com.')
+  t.same(presentation({
+    type: 'SOA',
+    data: { mname: 'ns1.example.com', rname: 'hostmaster.example.com', serial: 2026102601, refresh: 7200, retry: 3600, expire: 1209600, minimum: 300 }
+  }), 'ns1.example.com. hostmaster.example.com. 2026102601 7200 3600 1209600 300')
+  t.same(presentation({ type: 'SRV', data: { priority: 10, weight: 60, port: 5060, target: '.' } }), '10 60 5060 .')
+  t.same(presentation({ type: 'CAA', data: { flags: 0, tag: 'issue', value: 'letsencrypt.org' } }), '0 issue "letsencrypt.org"')
+  t.end()
+})
+
+tape('presentation: character-strings', function (t) {
+  t.same(presentation({ type: 'TXT', data: ['v=spf1 -all', 'say "hi" \\ bye', ''] }), '"v=spf1 -all" "say \\"hi\\" \\\\ bye" ""')
+  t.same(presentation({ type: 'TXT', data: [Buffer.from([0x00, 0x41, 0x7f])] }), '"\\000A\\127"')
+  t.same(presentation({ type: 'TXT', data: ['日本'] }), '"\\230\\151\\165\\230\\156\\172"')
+  t.same(presentation({ type: 'TXT', data: ['日本'] }, { utf8: true }), '"日本"')
+  // An invalid UTF-8 sequence is still escaped with utf8: true
+  t.same(presentation({ type: 'TXT', data: [Buffer.from([0xe6, 0x97])] }, { utf8: true }), '"\\230\\151"')
+  t.same(presentation({ type: 'SPF', data: ['v=spf1 -all'] }), '"v=spf1 -all"')
+  t.same(presentation({ type: 'HINFO', data: { cpu: 'INTEL-386', os: 'Linux' } }), '"INTEL-386" "Linux"')
+  t.same(presentation({
+    type: 'NAPTR',
+    data: { order: 100, preference: 10, flags: 'S', services: 'SIP+D2U', regexp: '!^.*$!sip:info@example.com!', replacement: '_sip._udp.example.com' }
+  }), '100 10 "S" "SIP+D2U" "!^.*$!sip:info@example.com!" _sip._udp.example.com.')
+  t.same(presentation({ type: 'URI', data: { priority: 10, weight: 1, target: 'https://www.example.com/' } }), '10 1 "https://www.example.com/"')
+  t.end()
+})
+
+tape('presentation: DNSSEC', function (t) {
+  t.same(presentation({ type: 'DS', data: { keyTag: 60485, algorithm: 5, digestType: 1, digest: Buffer.from('2bb183af5f22588179a53b0a98631fad1a292118', 'hex') } }),
+    '60485 5 1 2BB183AF5F22588179A53B0A98631FAD1A292118') // RFC 4034 section 5.4
+  t.same(presentation({ type: 'CDS', data: { keyTag: 0, algorithm: 0, digestType: 0, digest: Buffer.from([0]) } }), '0 0 0 00') // RFC 8078 delete
+  t.same(presentation({ type: 'DNSKEY', data: { flags: 257, algorithm: 13, key: Buffer.from('foobar') } }), '257 3 13 Zm9vYmFy')
+  t.same(presentation({ type: 'KEY', data: { flags: 256, protocol: 1, algorithm: 8, key: Buffer.from('f') } }), '256 1 8 Zg==')
+  t.same(presentation({
+    type: 'NSEC3',
+    data: { algorithm: 1, flags: 1, iterations: 12, salt: Buffer.from('aabbccdd', 'hex'), nextDomain: Buffer.from('foobar'), rrtypes: ['A', 'RRSIG'] }
+  }), '1 1 12 AABBCCDD CPNMUOJ1E8 A RRSIG')
+  t.same(presentation({ type: 'NSEC3PARAM', data: { algorithm: 1, flags: 0, iterations: 0, salt: Buffer.alloc(0) } }), '1 0 0 -')
+  t.same(presentation({ type: 'NSEC', data: { nextDomain: 'host.example.com', rrtypes: ['A', 'MX', 'RRSIG', 'NSEC', 'TYPE1234'] } }),
+    'host.example.com. A MX RRSIG NSEC TYPE1234') // RFC 4034 section 4.3
+  t.same(presentation({ type: 'SSHFP', data: { algorithm: 4, hash: 2, fingerprint: 'a108c9f834354d5b37af988141c9294822f5bc00afa0dfafa2dfa1dfafa5dfa1' } }),
+    '4 2 a108c9f834354d5b37af988141c9294822f5bc00afa0dfafa2dfa1dfafa5dfa1')
+  t.end()
+})
+
+tape('presentation: SVCB / HTTPS', function (t) {
+  // RFC 9460 appendix D.2, Figure 7 (keys are printed in wire order)
+  t.same(presentation({
+    type: 'SVCB',
+    data: { priority: 16, targetName: 'foo.example.org', params: { alpn: ['h2', 'h3-19'], mandatory: ['ipv4hint', 'alpn'], ipv4hint: ['192.0.2.1'] } }
+  }), '16 foo.example.org. mandatory=ipv4hint,alpn alpn="h2,h3-19" ipv4hint=192.0.2.1')
+  t.same(presentation({ type: 'HTTPS', data: { priority: 0, targetName: 'cdn.example.net', params: {} } }), '0 cdn.example.net.')
+  t.same(presentation({
+    type: 'HTTPS',
+    data: { priority: 1, targetName: '.', params: { 'no-default-alpn': true, port: 8443, ech: Buffer.from('foobar'), ipv6hint: ['2001:db8::1'], dohpath: '/q{?dns}', key65000: Buffer.from('a"b') } }
+  }), '1 . no-default-alpn port=8443 ech="Zm9vYmFy" ipv6hint=2001:db8::1 dohpath="/q{?dns}" key65000="a\\"b"')
+  t.end()
+})
+
+tape('presentation: other types', function (t) {
+  // RFC 1876 section 4: 42 21 54 N 71 06 18 W -24m 30m
+  t.same(presentation({
+    type: 'LOC',
+    data: {
+      size: 0x33,
+      horizontalPrecision: 0x16,
+      verticalPrecision: 0x13,
+      latitude: 2 ** 31 + (42 * 3600 + 21 * 60 + 54) * 1000,
+      longitude: 2 ** 31 - (71 * 3600 + 6 * 60 + 18) * 1000,
+      altitude: 10000000 - 2400
+    }
+  }), '42 21 54.000 N 71 6 18.000 W -24.00m 30.00m 10000.00m 10.00m')
+  // RFC 3123 section 4
+  t.same(presentation({
+    type: 'APL',
+    data: [{ family: 1, prefix: 21, negation: false, address: '192.168.32.0' }, { family: 1, prefix: 28, negation: true, address: '192.168.38.0' }]
+  }), '1:192.168.32.0/21 !1:192.168.38.0/28')
+  t.same(presentation({ type: 'WKS', data: { address: '192.0.2.1', protocol: 6, ports: [25, 80] } }), '192.0.2.1 6 25 80')
+  t.same(presentation({ type: 'IPSECKEY', data: { precedence: 10, gatewayType: 0, algorithm: 2, gateway: null, publicKey: Buffer.from('f') } }), '10 0 2 . Zg==')
+  t.same(presentation({ type: 'IPSECKEY', data: { precedence: 10, gatewayType: 3, algorithm: 2, gateway: 'gw.example.com', publicKey: Buffer.from('f') } }), '10 3 2 gw.example.com. Zg==')
+  t.same(presentation({ type: 'AMTRELAY', data: { precedence: 10, discoveryOptional: true, relayType: 1, relay: '203.0.113.15' } }), '10 1 1 203.0.113.15')
+  t.same(presentation({ type: 'AMTRELAY', data: { precedence: 0, discoveryOptional: false, relayType: 0, relay: null } }), '0 0 0 .')
+  t.same(presentation({ type: 'HIP', data: { algorithm: 2, hit: Buffer.from('2001', 'hex'), publicKey: Buffer.from('f'), rendezvousServers: ['rvs.example.com'] } }), '2 2001 Zg== rvs.example.com.')
+  t.same(presentation({ type: 'EUI64', data: '00-00-5e-ef-10-00-00-2a' }), '00-00-5e-ef-10-00-00-2a')
+  t.same(presentation({ type: 'NID', data: { preference: 10, nodeId: '0014:4fff:ff20:8b37' } }), '10 0014:4fff:ff20:8b37')
+  t.same(presentation({ type: 'DSYNC', data: { rrtype: 'CDS', scheme: 1, port: 5359, target: 'dsync.example.net' } }), 'CDS 1 5359 dsync.example.net.')
+  t.same(presentation({ type: 'A6', data: { prefixLength: 0, suffix: '2001:db8::1' } }), '0 2001:db8::1')
+  t.same(presentation({ type: 'A6', data: { prefixLength: 64, suffix: '::1:2:3:4', prefixName: 'prefix.example.com' } }), '64 ::1:2:3:4 prefix.example.com.')
+  t.same(presentation({ type: 'ATMA', data: { format: 1, address: '15551234567' } }), '+15551234567')
+  t.same(presentation({ type: 'CERT', data: { certType: 1, keyTag: 12345, algorithm: 8, certificate: Buffer.from('f') } }), 'PKIX 12345 8 Zg==')
+  t.same(presentation({ type: 'HHIT', data: { data: Buffer.from('0102', 'hex') } }), '\\# 2 0102')
+  t.same(presentation({ type: 'TSIG', class: 'ANY', ttl: 0, data: { algorithm: 'hmac-sha256', timeSigned: 1761436800, fudge: 300, mac: Buffer.from('f'), originalId: 1, error: 0, other: Buffer.alloc(0) } }),
+    'hmac-sha256. 1761436800 300 1 Zg== 1 0 0')
+  t.end()
+})
+
+tape('presentation: unknown and malformed rdata, rrToString', function (t) {
+  const [unknown] = roundTrip([{ type: 'TYPE65280', data: Buffer.from('0102', 'hex') }])
+  t.same(unknown.type, 'UNKNOWN_65280')
+  t.same(rdataToString(unknown), '\\# 2 0102')
+  t.same(rrToString(unknown), 'example.com. 300 IN TYPE65280 \\# 2 0102')
+  t.same(rrToString(roundTrip([{ type: 'NULL', data: Buffer.alloc(0) }])[0]), 'example.com. 300 IN NULL \\# 0')
+
+  t.same(rrToString(roundTrip([{ type: 'MX', data: { preference: 10, exchange: 'mail.example.com' } }])[0]),
+    'example.com. 300 IN MX 10 mail.example.com.')
+
+  // A record whose RDATA could not be decoded keeps its raw bytes
+  t.same(rdataToString({ type: 'HTTPS', name: 'example.com', data: Buffer.from('0001', 'hex'), dataError: 'broken' }), '\\# 2 0001')
+
+  const opt = packet.decode(packet.encode({
+    type: 'response',
+    additionals: [{ type: 'OPT', name: '.', udpPayloadSize: 1232, flags: packet.DNSSEC_OK, options: [{ code: 10, data: Buffer.from('0102030405060708', 'hex') }] }]
+  })).additionals[0]
+  t.same(rrToString(opt), '. 32768 CLASS1232 OPT \\# 12 000a00080102030405060708')
   t.end()
 })
 
