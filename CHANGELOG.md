@@ -1,4 +1,8 @@
-# Unreleased
+# Version 7.0.0 - 2026-10-26 (@noelminamino/dns-packet)
+
+First release on npm. Includes everything from 6.2.0-nm.0 to 6.5.0-nm.0 below.
+
+- Breaking: records of the types added in this fork are decoded into objects instead of raw bytes.
 
 - Requires Node.js 22 or later (20 is end-of-life); CI tests Node.js 22 and 24.
 - Dev: replace standard (ESLint 8) with neostandard (ESLint 10), and dtslint with tsc and exact type
